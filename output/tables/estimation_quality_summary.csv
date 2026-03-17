@@ -1,0 +1,2 @@
+true_positive,false_positive,true_negative,false_negative,accuracy,precision,recall,specificity
+36739,423,1994,10844,0.77466,0.9886174048759485,0.7721034823361285,0.8249896565990897

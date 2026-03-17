@@ -1,19 +1,4 @@
 .Rhistory
 .RData
 .Rproj.user
-
-# data (do not track generated data)
-data/raw/*
-data/clean/*
-data/processed/*
-
-# outputs
-output/tables/*
-output/figures/*
-
-# keep folder structure
-!data/raw/.gitkeep
-!data/clean/.gitkeep
-!data/processed/.gitkeep
-!output/tables/.gitkeep
-!output/figures/.gitkeep
+.DS_Store

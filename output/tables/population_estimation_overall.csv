@@ -1,0 +1,2 @@
+register_population_count,likely_resident_count,estimated_overcoverage_count,estimated_overcoverage_rate,true_resident_count,true_overcoverage_count,true_overcoverage_rate,estimation_error_count,estimation_error_rate,no_activity_count,no_activity_rate,mean_signal_count
+50000,37162,12838,0.25676,47583,2417,0.04834,-10421,-0.20842,15455,0.3091,0.9781000000000009
