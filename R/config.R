@@ -1,0 +1,5 @@
+DATA_RAW <- "data/raw/"
+DATA_CLEAN <- "data/clean/"
+DATA_PROCESSED <- "data/processed/"
+OUTPUT_TABLES <- "output/tables/"
+OUTPUT_FIGURES <- "output/figures/"
