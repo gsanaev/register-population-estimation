@@ -1,2 +1,4 @@
-true_positive,false_positive,true_negative,false_negative,accuracy,precision,recall,specificity
-36739,423,1994,10844,0.77466,0.9886174048759485,0.7721034823361285,0.8249896565990897
+estimation_method,evaluated_persons,true_positive,false_positive,true_negative,false_negative,accuracy,precision,recall,specificity,false_positive_rate,false_negative_rate
+population_register_baseline,53000,49044,2403,597,956,0.936622641509434,0.9532917371275293,0.98088,0.199,0.801,0.01912
+evidence_fallback_without_clarification,53000,49723,2470,530,277,0.9481698113207547,0.9526756461594467,0.99446,0.17666666666666667,0.8233333333333334,0.00554
+clarification_assisted,53000,49690,902,2098,310,0.9771320754716981,0.9821710942441493,0.9938,0.6993333333333334,0.3006666666666667,0.0062

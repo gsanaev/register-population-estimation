@@ -1,0 +1,6 @@
+residence_clarification_target_reason,target_cases,responses,nonresponses,response_rate,clarification_resident_results,clarification_nonresident_results,final_estimated_residents
+registered_age_18_64_without_positive_activity,4879,4402,477,0.9022340643574503,2838,1564,3315
+auxiliary_only_consistent_address,772,690,82,0.8937823834196891,608,82,683
+registered_unknown_age_without_positive_activity,23,22,1,0.9565217391304348,20,2,21
+auxiliary_only_without_consistent_address,21,17,4,0.8095238095238095,15,2,15
+auxiliary_only_conflicting_addresses,13,13,0,1,13,0,13

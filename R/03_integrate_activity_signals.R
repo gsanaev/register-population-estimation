@@ -1,37 +1,64 @@
 # =====================================================================
 # 03_integrate_activity_signals.R
-# Integration of Cleaned Registers and Construction of Activity Signals
+# Integration of Cleaned Registers and Construction of Evidence Features
+# Version 2
 # ---------------------------------------------------------------------
-# This script loads the cleaned synthetic registers and builds an
-# analysis-ready person-level dataset for register-based population
-# estimation.
+# This script integrates the cleaned synthetic administrative sources
+# into an analysis-ready person-level evidence dataset.
 #
 # It performs:
-#   - integration of cleaned administrative sources
-#   - derivation of activity-based indicators ("Lebenszeichen")
-#   - rule-based plausibility classification
-#   - creation of regional summary outputs
+#   - integration of cleaned population and auxiliary registers
+#   - preservation of source-specific activity and address information
+#   - construction of neutral activity-evidence measures
+#   - construction of person/address consistency indicators
+#   - assignment of an analytical geography without treating it as
+#     verified residence
+#   - identification of cases that may require later clarification
+#   - creation of regional and address-level evidence summaries
 #
-# Output:
+# Important methodological distinction:
+#
+#   This script does NOT classify persons as residents or non-residents.
+#   It also does NOT use the hidden synthetic ground truth.
+#
+#   Residence-status estimation and later evaluation against hidden
+#   truth belong to subsequent stages.
+#
+# Outputs:
 #   data/processed/person_register_integrated.csv
 #   data/processed/region_activity_summary.csv
+#   data/processed/address_evidence_summary.csv
 # =====================================================================
+
 
 # ---------------------------------------------------------------------
 # 0. Load packages
 # ---------------------------------------------------------------------
+
 library(dplyr)
 library(readr)
-library(janitor)
+
 
 # ---------------------------------------------------------------------
 # 1. Ensure output directory exists
 # ---------------------------------------------------------------------
-dir.create("data/processed", showWarnings = FALSE, recursive = TRUE)
+
+dir.create(
+  "data/processed",
+  showWarnings = FALSE,
+  recursive = TRUE
+)
+
 
 # ---------------------------------------------------------------------
 # 2. Load cleaned datasets
 # ---------------------------------------------------------------------
+
+address_clean <- read_csv(
+  "data/clean/address_register_clean.csv",
+  show_col_types = FALSE
+)
+
 population_clean <- read_csv(
   "data/clean/population_register_clean.csv",
   show_col_types = FALSE
@@ -57,193 +84,779 @@ activity_summary <- read_csv(
   show_col_types = FALSE
 )
 
-# ---------------------------------------------------------------------
-# 3. Prepare compact source summaries for joining
-# ---------------------------------------------------------------------
-message("Preparing source-specific summaries...")
 
-# Helper functions -----------------------------------------------------
-safe_max_numeric <- function(x) {
-  if (all(is.na(x))) NA_real_ else max(x, na.rm = TRUE)
+# ---------------------------------------------------------------------
+# 3. Structural checks
+# ---------------------------------------------------------------------
+
+message("Running structural checks...")
+
+
+assert_unique_person_id <- function(
+    data,
+    dataset_name
+) {
+
+  if (
+    nrow(data) !=
+      n_distinct(data$person_id)
+  ) {
+
+    stop(
+      paste0(
+        "Critical integration error: duplicate person IDs detected in ",
+        dataset_name,
+        "."
+      ),
+      call. = FALSE
+    )
+  }
 }
 
-safe_max_flag <- function(x) {
-  if (all(is.na(x))) 0L else max(x, na.rm = TRUE)
+
+assert_unique_person_id(
+  population_clean,
+  "population_register_clean.csv"
+)
+
+assert_unique_person_id(
+  employment_clean,
+  "employment_register_clean.csv"
+)
+
+assert_unique_person_id(
+  tax_clean,
+  "tax_register_clean.csv"
+)
+
+assert_unique_person_id(
+  education_clean,
+  "education_register_clean.csv"
+)
+
+assert_unique_person_id(
+  activity_summary,
+  "register_activity_summary.csv"
+)
+
+
+# ---------------------------------------------------------------------
+# 4. Guard against hidden-truth leakage
+# ---------------------------------------------------------------------
+
+forbidden_truth_columns <- c(
+  "resident_true",
+  "true_resident",
+  "coverage_status_true",
+  "true_address_id",
+  "former_address_id",
+  "undercoverage_flag_true",
+  "overcoverage_flag_true"
+)
+
+truth_columns_found <- intersect(
+  forbidden_truth_columns,
+  names(activity_summary)
+)
+
+if (
+  length(truth_columns_found) > 0
+) {
+
+  stop(
+    paste0(
+      "Critical integration error: hidden ground-truth columns found in ",
+      "register_activity_summary.csv: ",
+      paste(
+        truth_columns_found,
+        collapse = ", "
+      )
+    ),
+    call. = FALSE
+  )
 }
 
-safe_first_char <- function(x) {
-  x_non_missing <- x[!is.na(x)]
-  if (length(x_non_missing) == 0) NA_character_ else x_non_missing[1]
-}
 
 # ---------------------------------------------------------------------
-# Employment summary
+# 5. Prepare compact source-specific analytical variables
 # ---------------------------------------------------------------------
-employment_summary <- employment_clean %>%
-  group_by(person_id) %>%
-  summarise(
-    employment_status_main = safe_first_char(employment_status),
-    days_employed_last_12m = safe_max_numeric(days_employed_last_12m),
-    annual_employment_income = safe_max_numeric(annual_employment_income),
-    .groups = "drop"
+
+message("Preparing source-specific analytical variables...")
+
+
+population_details <- population_clean %>%
+
+  transmute(
+    person_id,
+
+    registration_date =
+      registration_date,
+
+    last_move_date =
+      last_move_date
   )
 
-# ---------------------------------------------------------------------
-# Tax summary
-# ---------------------------------------------------------------------
-tax_summary <- tax_clean %>%
-  group_by(person_id) %>%
-  summarise(
-    tax_filing_flag = safe_max_flag(tax_filing_flag),
-    taxable_income = safe_max_numeric(taxable_income),
-    .groups = "drop"
+
+employment_details <- employment_clean %>%
+
+  transmute(
+    person_id,
+
+    employment_status =
+      employment_status,
+
+    employment_days_last_12m =
+      as.numeric(
+        days_employed_last_12m
+      ),
+
+    employment_annual_income =
+      as.numeric(
+        annual_employment_income
+      ),
+
+    employment_ref_date =
+      ref_date
   )
 
-# ---------------------------------------------------------------------
-# Education summary
-# ---------------------------------------------------------------------
-education_summary <- education_clean %>%
-  group_by(person_id) %>%
-  summarise(
-    enrolment_flag = safe_max_flag(enrolment_flag),
-    institution_type_main = safe_first_char(institution_type),
-    .groups = "drop"
+
+tax_details <- tax_clean %>%
+
+  transmute(
+    person_id,
+
+    tax_year =
+      tax_year,
+
+    tax_filing_flag =
+      tax_filing_flag,
+
+    taxable_income =
+      as.numeric(
+        taxable_income
+      )
   )
 
+
+education_details <- education_clean %>%
+
+  transmute(
+    person_id,
+
+    enrolment_flag =
+      enrolment_flag,
+
+    institution_type =
+      institution_type
+  )
+
+
 # ---------------------------------------------------------------------
-# 4. Build integrated person-level analytical dataset
+# 6. Integrate cleaned register evidence
 # ---------------------------------------------------------------------
-message("Integrating cleaned registers...")
+
+message("Integrating cleaned register evidence...")
+
 
 person_register_integrated <- activity_summary %>%
+
   left_join(
-    population_clean %>%
-      select(
-        person_id,
-        household_id,
-        sex,
-        age,
-        age_group,
-        region_code,
-        citizenship_group,
-        registration_status,
-        registration_date,
-        last_move_date,
-        resident_true,
-        overcoverage_flag_true
-      ),
-    by = c(
-      "person_id",
-      "age",
-      "age_group",
-      "region_code",
-      "registration_status",
-      "resident_true",
-      "overcoverage_flag_true"
-    )
+    population_details,
+    by = "person_id"
   ) %>%
-  left_join(employment_summary, by = "person_id") %>%
-  left_join(tax_summary, by = "person_id") %>%
-  left_join(education_summary, by = "person_id") %>%
+
+  left_join(
+    employment_details,
+    by = "person_id"
+  ) %>%
+
+  left_join(
+    tax_details,
+    by = "person_id"
+  ) %>%
+
+  left_join(
+    education_details,
+    by = "person_id"
+  ) %>%
+
   mutate(
-    employment_signal = coalesce(employment_signal, 0),
-    tax_signal = coalesce(tax_signal, 0),
-    education_signal = coalesce(education_signal, 0),
+    # ---------------------------------------------------------------
+    # Activity evidence
+    # ---------------------------------------------------------------
 
-    days_employed_last_12m = as.numeric(days_employed_last_12m),
-    annual_employment_income = as.numeric(annual_employment_income),
-    taxable_income = as.numeric(taxable_income),
+    activity_evidence_level = case_when(
 
-    signal_count = employment_signal + tax_signal + education_signal,
+      n_activity_signals >= 2L ~
+        "multiple_positive_signals",
 
-    signal_strength = case_when(
-      signal_count >= 3 ~ "high",
-      signal_count == 2 ~ "medium",
-      signal_count == 1 ~ "low",
-      TRUE ~ "none"
+      n_activity_signals == 1L ~
+        "single_positive_signal",
+
+      TRUE ~
+        "no_positive_signal"
     ),
 
-    # Rule-based residence plausibility
-    likely_resident_rule = case_when(
-      signal_count >= 1 ~ 1L,
-      age_group %in% c("0-5", "6-17") & education_signal == 1 ~ 1L,
-      age_group == "80+" & signal_count == 0 ~ 1L,
-      TRUE ~ 0L
+    economic_activity_flag =
+      as.integer(
+        employment_signal == 1L |
+        tax_signal == 1L
+      ),
+
+    education_activity_flag =
+      as.integer(
+        education_signal == 1L
+      ),
+
+    # ---------------------------------------------------------------
+    # Address evidence
+    # ---------------------------------------------------------------
+
+    address_evidence_status = case_when(
+
+      in_population_register == 1L &
+        n_contact_addresses_available == 0L ~
+        "registered_no_auxiliary_address",
+
+      in_population_register == 1L &
+        flag_population_auxiliary_address_disagreement ~
+        "registered_auxiliary_addresses_differ",
+
+      in_population_register == 1L &
+        flag_auxiliary_address_conflict &
+        n_contact_addresses_matching_population > 0L ~
+        "registered_mixed_auxiliary_addresses",
+
+      in_population_register == 1L &
+        n_contact_addresses_matching_population > 0L ~
+        "registered_address_supported",
+
+      in_population_register == 0L &
+        n_contact_addresses_available == 0L ~
+        "auxiliary_only_no_address",
+
+      in_population_register == 0L &
+        flag_auxiliary_address_conflict ~
+        "auxiliary_only_conflicting_addresses",
+
+      in_population_register == 0L &
+        !is.na(
+          consistent_auxiliary_address_id
+        ) ~
+        "auxiliary_only_consistent_address",
+
+      TRUE ~
+        "address_evidence_unresolved"
     ),
 
-    # More refined risk categorisation
-    overcoverage_risk = case_when(
-      age_group %in% c("25-39", "40-64") & signal_count == 0 ~ "high",
-      age_group == "18-24" & signal_count == 0 ~ "high",
-      age_group %in% c("65-79") & signal_count == 0 ~ "medium",
-      age_group %in% c("0-5", "6-17") & signal_count == 0 ~ "low",
-      age_group == "80+" & signal_count == 0 ~ "low",
-      signal_count == 1 ~ "medium",
-      signal_count >= 2 ~ "low",
-      TRUE ~ "medium"
+    # ---------------------------------------------------------------
+    # Analytical geography
+    # ---------------------------------------------------------------
+    # For persons in the population register, analytical geography
+    # comes from the registered address.
+    #
+    # For auxiliary-only persons, geography is assigned only where
+    # auxiliary sources provide one consistent address.
+    #
+    # This is an analytical location for evidence aggregation, not a
+    # verified statement of residence.
+
+    analysis_address_id = case_when(
+
+      in_population_register == 1L ~
+        address_id,
+
+      in_population_register == 0L &
+        !is.na(
+          consistent_auxiliary_address_id
+        ) ~
+        consistent_auxiliary_address_id,
+
+      TRUE ~
+        NA_character_
     ),
 
-    # Additional interpretable indicators
-    economic_activity_flag = if_else(
-      employment_signal == 1 | tax_signal == 1,
-      1L, 0L
+    analysis_region_code = case_when(
+
+      in_population_register == 1L ~
+        region_code,
+
+      in_population_register == 0L &
+        !is.na(
+          consistent_auxiliary_region_code
+        ) ~
+        consistent_auxiliary_region_code,
+
+      TRUE ~
+        NA_character_
     ),
 
-    social_activity_flag = if_else(
-      education_signal == 1,
-      1L, 0L
-    )
+    analysis_municipality_code = case_when(
+
+      in_population_register == 1L ~
+        municipality_code,
+
+      in_population_register == 0L &
+        !is.na(
+          consistent_auxiliary_municipality_code
+        ) ~
+        consistent_auxiliary_municipality_code,
+
+      TRUE ~
+        NA_character_
+    ),
+
+    analysis_geography_source = case_when(
+
+      in_population_register == 1L ~
+        "population_register",
+
+      in_population_register == 0L &
+        !is.na(
+          consistent_auxiliary_address_id
+        ) ~
+        "consistent_auxiliary_address",
+
+      TRUE ~
+        "unresolved"
+    ),
+
+    flag_geography_unresolved =
+      is.na(
+        analysis_address_id
+      ),
+
+    # ---------------------------------------------------------------
+    # Observed evidence case
+    # ---------------------------------------------------------------
+    # These groups describe what is observed. They do not represent a
+    # residence-status decision.
+
+    observed_evidence_case = case_when(
+
+      in_population_register == 1L &
+        n_activity_signals > 0L &
+        flag_population_auxiliary_address_disagreement ~
+        "registered_activity_address_disagreement",
+
+      in_population_register == 1L &
+        n_activity_signals > 0L ~
+        "registered_with_positive_activity",
+
+      in_population_register == 1L &
+        n_activity_signals == 0L &
+        n_contact_addresses_available > 0L ~
+        "registered_no_activity_with_auxiliary_address",
+
+      in_population_register == 1L ~
+        "registered_no_activity_no_auxiliary_address",
+
+      in_population_register == 0L &
+        n_activity_signals > 0L &
+        !is.na(
+          consistent_auxiliary_address_id
+        ) ~
+        "auxiliary_only_activity_consistent_address",
+
+      in_population_register == 0L &
+        n_activity_signals > 0L ~
+        "auxiliary_only_activity_unresolved_address",
+
+      TRUE ~
+        "auxiliary_only_without_positive_activity"
+    ),
+
+    # ---------------------------------------------------------------
+    # Cases for a later synthetic clarification step
+    # ---------------------------------------------------------------
+    # "Clarification" here refers only to this synthetic methodological
+    # workflow. It is not intended to reproduce an official Destatis
+    # survey or administrative procedure.
+
+    clarification_reason = case_when(
+
+      in_population_register == 0L &
+        flag_auxiliary_address_conflict ~
+        "auxiliary_only_conflicting_addresses",
+
+      in_population_register == 0L &
+        is.na(
+          consistent_auxiliary_address_id
+        ) ~
+        "auxiliary_only_without_consistent_address",
+
+      in_population_register == 0L ~
+        "auxiliary_only_consistent_address",
+
+      in_population_register == 1L &
+        flag_population_auxiliary_address_disagreement ~
+        "registered_auxiliary_address_disagreement",
+
+      in_population_register == 1L &
+        flag_auxiliary_address_conflict ~
+        "registered_mixed_auxiliary_addresses",
+
+      TRUE ~
+        "none"
+    ),
+
+    flag_clarification_case =
+      clarification_reason != "none"
   ) %>%
-  arrange(person_id)
+
+  arrange(
+    person_id
+  )
+
 
 # ---------------------------------------------------------------------
-# 5. Consistency checks
+# 7. Post-integration validation
 # ---------------------------------------------------------------------
-message("Running consistency checks...")
 
-# Check for duplicate person IDs after integration
-if (nrow(person_register_integrated) != n_distinct(person_register_integrated$person_id)) {
-  warning("Duplicate person IDs detected in integrated person file.")
+message("Running post-integration validation...")
+
+
+if (
+  nrow(person_register_integrated) !=
+    n_distinct(
+      person_register_integrated$person_id
+    )
+) {
+
+  stop(
+    "Critical integration error: duplicate person IDs after integration.",
+    call. = FALSE
+  )
 }
 
-# Check that signal_count is within plausible bounds
-invalid_signal_count <- person_register_integrated %>%
-  filter(signal_count < 0 | signal_count > 3)
 
-if (nrow(invalid_signal_count) > 0) {
-  warning("Invalid signal_count values detected.")
+if (
+  any(
+    person_register_integrated$
+      n_activity_signals < 0L |
+      person_register_integrated$
+        n_activity_signals > 3L,
+    na.rm = TRUE
+  )
+) {
+
+  stop(
+    "Critical integration error: invalid n_activity_signals values.",
+    call. = FALSE
+  )
 }
 
-# Check distribution of rule-based likely residence
-message("Distribution of likely_resident_rule:")
-print(table(person_register_integrated$likely_resident_rule, useNA = "ifany"))
 
-message("Distribution of overcoverage_risk:")
-print(table(person_register_integrated$overcoverage_risk, useNA = "ifany"))
+integrated_truth_columns <- intersect(
+  forbidden_truth_columns,
+  names(
+    person_register_integrated
+  )
+)
+
+if (
+  length(
+    integrated_truth_columns
+  ) > 0
+) {
+
+  stop(
+    paste0(
+      "Critical integration error: hidden truth leaked into integrated output: ",
+      paste(
+        integrated_truth_columns,
+        collapse = ", "
+      )
+    ),
+    call. = FALSE
+  )
+}
+
+
+invalid_analysis_addresses <- person_register_integrated %>%
+
+  filter(
+    !is.na(
+      analysis_address_id
+    ),
+    !analysis_address_id %in%
+      address_clean$address_id
+  )
+
+
+if (
+  nrow(
+    invalid_analysis_addresses
+  ) > 0
+) {
+
+  stop(
+    paste0(
+      "Critical integration error: ",
+      nrow(
+        invalid_analysis_addresses
+      ),
+      " analytical address IDs are not found in the cleaned address register."
+    ),
+    call. = FALSE
+  )
+}
+
+
+message(
+  "Observed persons = ",
+  nrow(
+    person_register_integrated
+  )
+)
+
+message(
+  "Persons in population register = ",
+  sum(
+    person_register_integrated$
+      in_population_register == 1L,
+    na.rm = TRUE
+  )
+)
+
+message(
+  "Auxiliary-only persons = ",
+  sum(
+    person_register_integrated$
+      flag_auxiliary_only,
+    na.rm = TRUE
+  )
+)
+
+message(
+  "Persons with unresolved analytical geography = ",
+  sum(
+    person_register_integrated$
+      flag_geography_unresolved,
+    na.rm = TRUE
+  )
+)
+
+message(
+  "Cases marked for later clarification = ",
+  sum(
+    person_register_integrated$
+      flag_clarification_case,
+    na.rm = TRUE
+  )
+)
+
+
+message("Observed evidence-case distribution:")
+
+print(
+  person_register_integrated %>%
+
+    count(
+      observed_evidence_case,
+      sort = TRUE
+    )
+)
+
+
+message("Address-evidence distribution:")
+
+print(
+  person_register_integrated %>%
+
+    count(
+      address_evidence_status,
+      sort = TRUE
+    )
+)
+
 
 # ---------------------------------------------------------------------
-# 6. Create regional summary output
+# 8. Create regional evidence summary
 # ---------------------------------------------------------------------
-message("Building regional summary...")
+
+message("Building regional evidence summary...")
+
 
 region_activity_summary <- person_register_integrated %>%
-  group_by(region_code) %>%
+
+  mutate(
+    summary_region_code =
+      coalesce(
+        analysis_region_code,
+        "UNRESOLVED"
+      )
+  ) %>%
+
+  group_by(
+    summary_region_code
+  ) %>%
+
   summarise(
-    population_register_count = n(),
-    n_likely_residents = sum(likely_resident_rule == 1, na.rm = TRUE),
-    n_high_risk = sum(overcoverage_risk == "high", na.rm = TRUE),
-    n_no_activity = sum(signal_count == 0, na.rm = TRUE),
-    mean_signal_count = mean(signal_count, na.rm = TRUE),
-    employment_signal_rate = mean(employment_signal, na.rm = TRUE),
-    tax_signal_rate = mean(tax_signal, na.rm = TRUE),
-    education_signal_rate = mean(education_signal, na.rm = TRUE),
+    observed_persons =
+      n(),
+
+    registered_persons =
+      sum(
+        in_population_register == 1L,
+        na.rm = TRUE
+      ),
+
+    auxiliary_only_persons =
+      sum(
+        flag_auxiliary_only,
+        na.rm = TRUE
+      ),
+
+    auxiliary_only_with_activity =
+      sum(
+        flag_auxiliary_only_with_activity,
+        na.rm = TRUE
+      ),
+
+    registered_without_positive_activity =
+      sum(
+        flag_registered_without_activity,
+        na.rm = TRUE
+      ),
+
+    persons_with_multiple_positive_signals =
+      sum(
+        n_activity_signals >= 2L,
+        na.rm = TRUE
+      ),
+
+    auxiliary_address_conflict_cases =
+      sum(
+        flag_auxiliary_address_conflict,
+        na.rm = TRUE
+      ),
+
+    population_auxiliary_address_disagreement_cases =
+      sum(
+        flag_population_auxiliary_address_disagreement,
+        na.rm = TRUE
+      ),
+
+    clarification_cases =
+      sum(
+        flag_clarification_case,
+        na.rm = TRUE
+      ),
+
+    geography_unresolved_cases =
+      sum(
+        flag_geography_unresolved,
+        na.rm = TRUE
+      ),
+
+    mean_activity_signals =
+      mean(
+        n_activity_signals,
+        na.rm = TRUE
+      ),
+
+    employment_signal_rate =
+      mean(
+        employment_signal,
+        na.rm = TRUE
+      ),
+
+    tax_signal_rate =
+      mean(
+        tax_signal,
+        na.rm = TRUE
+      ),
+
+    education_signal_rate =
+      mean(
+        education_signal,
+        na.rm = TRUE
+      ),
+
     .groups = "drop"
   ) %>%
-  arrange(region_code)
+
+  arrange(
+    summary_region_code
+  )
+
 
 # ---------------------------------------------------------------------
-# 7. Write processed datasets
+# 9. Create address-level evidence summary
 # ---------------------------------------------------------------------
+
+message("Building address-level evidence summary...")
+
+
+address_evidence_summary <- person_register_integrated %>%
+
+  filter(
+    !is.na(
+      analysis_address_id
+    )
+  ) %>%
+
+  group_by(
+    analysis_address_id,
+    analysis_region_code,
+    analysis_municipality_code
+  ) %>%
+
+  summarise(
+    observed_persons =
+      n(),
+
+    registered_persons =
+      sum(
+        in_population_register == 1L,
+        na.rm = TRUE
+      ),
+
+    auxiliary_only_persons =
+      sum(
+        flag_auxiliary_only,
+        na.rm = TRUE
+      ),
+
+    persons_with_positive_activity =
+      sum(
+        n_activity_signals > 0L,
+        na.rm = TRUE
+      ),
+
+    persons_with_multiple_positive_signals =
+      sum(
+        n_activity_signals >= 2L,
+        na.rm = TRUE
+      ),
+
+    persons_with_address_conflict =
+      sum(
+        flag_auxiliary_address_conflict,
+        na.rm = TRUE
+      ),
+
+    clarification_cases =
+      sum(
+        flag_clarification_case,
+        na.rm = TRUE
+      ),
+
+    .groups = "drop"
+  ) %>%
+
+  arrange(
+    analysis_region_code,
+    analysis_municipality_code,
+    analysis_address_id
+  )
+
+
+# ---------------------------------------------------------------------
+# 10. Write processed datasets
+# ---------------------------------------------------------------------
+
 write_csv(
   person_register_integrated,
   "data/processed/person_register_integrated.csv"
@@ -254,5 +867,16 @@ write_csv(
   "data/processed/region_activity_summary.csv"
 )
 
-message("Integration and activity-signal construction completed successfully.")
-message("Files written to data/processed/")
+write_csv(
+  address_evidence_summary,
+  "data/processed/address_evidence_summary.csv"
+)
+
+
+message(
+  "Evidence integration completed successfully."
+)
+
+message(
+  "Files written to data/processed/"
+)
