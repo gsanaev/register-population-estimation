@@ -1,16 +1,32 @@
 # =====================================================================
 # 02_clean_and_validate_registers.R
 # Cleaning, Plausibility Checks, and Validation of Synthetic Registers
+# Version 2
 # ---------------------------------------------------------------------
-# This script loads the synthetic administrative registers created in
+# This script loads the synthetic datasets created in
 # 01_generate_synthetic_registers.R and performs:
-#   - structural validation of keys
-#   - plausibility checks within registers
-#   - consistency checks across registers
-#   - rule-based cleaning
-#   - creation of person-level activity indicators for later estimation
 #
-# Output:
+#   - structural validation of keys and relational integrity
+#   - validation of the hidden synthetic benchmark
+#   - cleaning and validation of the address register
+#   - cleaning and plausibility checks within administrative registers
+#   - cross-register consistency checks
+#   - construction of neutral person-level activity indicators
+#
+# Important methodological distinction:
+#
+#   Auxiliary-register persons do NOT need to occur in the population
+#   register. Persons observed only in auxiliary sources are retained,
+#   because they may represent potential population-register
+#   undercoverage.
+#
+#   Ground-truth variables from synthetic_population_truth.csv are used
+#   only for simulation-integrity checks in this script. They are NOT
+#   incorporated into cleaned administrative datasets or the activity
+#   summary.
+#
+# Outputs:
+#   data/clean/address_register_clean.csv
 #   data/clean/population_register_clean.csv
 #   data/clean/employment_register_clean.csv
 #   data/clean/tax_register_clean.csv
@@ -18,357 +34,1373 @@
 #   data/clean/register_activity_summary.csv
 # =====================================================================
 
+
 # ---------------------------------------------------------------------
 # 0. Load packages
 # ---------------------------------------------------------------------
+
 library(dplyr)
 library(readr)
 library(janitor)
-library(lubridate)
-library(stringr)
+
 
 # ---------------------------------------------------------------------
 # 1. Ensure output directory exists
 # ---------------------------------------------------------------------
-dir.create("data/clean", showWarnings = FALSE, recursive = TRUE)
+
+dir.create(
+  "data/clean",
+  showWarnings = FALSE,
+  recursive = TRUE
+)
+
 
 # ---------------------------------------------------------------------
 # 2. Load raw datasets
 # ---------------------------------------------------------------------
+
+truth_raw <- read_csv(
+  "data/raw/synthetic_population_truth.csv",
+  show_col_types = FALSE
+) %>%
+  clean_names()
+
+address_raw <- read_csv(
+  "data/raw/address_register.csv",
+  show_col_types = FALSE
+) %>%
+  clean_names()
+
 population_raw <- read_csv(
   "data/raw/population_register.csv",
   show_col_types = FALSE
-)
+) %>%
+  clean_names()
 
 employment_raw <- read_csv(
   "data/raw/employment_register.csv",
   show_col_types = FALSE
-)
+) %>%
+  clean_names()
 
 tax_raw <- read_csv(
   "data/raw/tax_register.csv",
   show_col_types = FALSE
-)
+) %>%
+  clean_names()
 
 education_raw <- read_csv(
   "data/raw/education_register.csv",
   show_col_types = FALSE
+) %>%
+  clean_names()
+
+
+# ---------------------------------------------------------------------
+# 3. Helper functions for critical structural validation
+# ---------------------------------------------------------------------
+
+assert_unique_key <- function(data, key, dataset_name) {
+
+  if (nrow(data) != n_distinct(data[[key]])) {
+
+    stop(
+      paste0(
+        "Critical validation error: duplicate ",
+        key,
+        " values detected in ",
+        dataset_name,
+        "."
+      ),
+      call. = FALSE
+    )
+  }
+}
+
+
+assert_ids_within_truth <- function(data, truth_ids, dataset_name) {
+
+  unknown_ids <- setdiff(
+    data$person_id,
+    truth_ids
+  )
+
+  if (length(unknown_ids) > 0) {
+
+    stop(
+      paste0(
+        "Critical validation error: ",
+        dataset_name,
+        " contains ",
+        length(unknown_ids),
+        " person IDs not found in the synthetic truth universe."
+      ),
+      call. = FALSE
+    )
+  }
+}
+
+
+# ---------------------------------------------------------------------
+# 4. Validate hidden synthetic benchmark
+# ---------------------------------------------------------------------
+# The truth dataset is not an administrative source. These checks ensure
+# that the simulation produced a logically coherent benchmark.
+
+message("Validating synthetic benchmark...")
+
+assert_unique_key(
+  truth_raw,
+  "person_id",
+  "synthetic_population_truth.csv"
+)
+
+valid_binary_values <- c(
+  0L,
+  1L
+)
+
+if (
+  any(
+    !truth_raw$true_resident %in% valid_binary_values
+  )
+) {
+
+  stop(
+    "Critical validation error: invalid true_resident values.",
+    call. = FALSE
+  )
+}
+
+if (
+  any(
+    !truth_raw$in_population_register %in% valid_binary_values
+  )
+) {
+
+  stop(
+    "Critical validation error: invalid in_population_register values.",
+    call. = FALSE
+  )
+}
+
+expected_coverage_status <- case_when(
+
+  truth_raw$true_resident == 1L &
+    truth_raw$in_population_register == 1L ~
+    "correctly_registered",
+
+  truth_raw$true_resident == 1L &
+    truth_raw$in_population_register == 0L ~
+    "undercoverage",
+
+  truth_raw$true_resident == 0L &
+    truth_raw$in_population_register == 1L ~
+    "overcoverage",
+
+  TRUE ~
+    "correctly_absent"
+)
+
+if (
+  any(
+    is.na(truth_raw$coverage_status_true)
+  ) ||
+    any(
+      truth_raw$coverage_status_true != expected_coverage_status
+    )
+) {
+
+  stop(
+    paste0(
+      "Critical validation error: coverage_status_true is inconsistent ",
+      "with true_resident and in_population_register."
+    ),
+    call. = FALSE
+  )
+}
+
+
+# ---------------------------------------------------------------------
+# 5. Structural validation of observable registers
+# ---------------------------------------------------------------------
+
+message("Running structural validation...")
+
+assert_unique_key(
+  address_raw,
+  "address_id",
+  "address_register.csv"
+)
+
+assert_unique_key(
+  population_raw,
+  "person_id",
+  "population_register.csv"
+)
+
+assert_unique_key(
+  employment_raw,
+  "person_id",
+  "employment_register.csv"
+)
+
+assert_unique_key(
+  tax_raw,
+  "person_id",
+  "tax_register.csv"
+)
+
+assert_unique_key(
+  education_raw,
+  "person_id",
+  "education_register.csv"
+)
+
+truth_ids <- truth_raw$person_id
+
+assert_ids_within_truth(
+  population_raw,
+  truth_ids,
+  "population_register.csv"
+)
+
+assert_ids_within_truth(
+  employment_raw,
+  truth_ids,
+  "employment_register.csv"
+)
+
+assert_ids_within_truth(
+  tax_raw,
+  truth_ids,
+  "tax_register.csv"
+)
+
+assert_ids_within_truth(
+  education_raw,
+  truth_ids,
+  "education_register.csv"
+)
+
+population_missing_addresses <- setdiff(
+  population_raw$address_id,
+  address_raw$address_id
+)
+
+population_missing_addresses <- population_missing_addresses[
+  !is.na(population_missing_addresses)
+]
+
+if (
+  length(population_missing_addresses) > 0
+) {
+
+  stop(
+    paste0(
+      "Critical validation error: population register contains ",
+      length(population_missing_addresses),
+      " address IDs not found in address_register.csv."
+    ),
+    call. = FALSE
+  )
+}
+
+validate_contact_addresses <- function(
+    data,
+    valid_address_ids,
+    dataset_name
+) {
+
+  contact_ids <- data$contact_address_id[
+    !is.na(data$contact_address_id)
+  ]
+
+  unknown_contact_ids <- setdiff(
+    contact_ids,
+    valid_address_ids
+  )
+
+  if (
+    length(unknown_contact_ids) > 0
+  ) {
+
+    stop(
+      paste0(
+        "Critical validation error: ",
+        dataset_name,
+        " contains ",
+        length(unknown_contact_ids),
+        " contact address IDs not found in address_register.csv."
+      ),
+      call. = FALSE
+    )
+  }
+}
+
+
+validate_contact_addresses(
+  employment_raw,
+  address_raw$address_id,
+  "employment_register.csv"
+)
+
+validate_contact_addresses(
+  tax_raw,
+  address_raw$address_id,
+  "tax_register.csv"
+)
+
+validate_contact_addresses(
+  education_raw,
+  address_raw$address_id,
+  "education_register.csv"
 )
 
 # ---------------------------------------------------------------------
-# 3. Basic structural validation
+# 6. Clean and validate address register
 # ---------------------------------------------------------------------
-message("Running structural validation...")
 
-# Unique person IDs in population register
-population_ids_unique <- nrow(population_raw) == n_distinct(population_raw$person_id)
-if (!population_ids_unique) {
-  warning("Duplicate person IDs detected in population_register.csv")
-}
+message("Cleaning address register...")
 
-# Cross-register key checks
-employment_missing_ids <- setdiff(employment_raw$person_id, population_raw$person_id)
-tax_missing_ids        <- setdiff(tax_raw$person_id, population_raw$person_id)
-education_missing_ids  <- setdiff(education_raw$person_id, population_raw$person_id)
+valid_region_codes <- sprintf(
+  "R%02d",
+  1:12
+)
 
-if (length(employment_missing_ids) > 0) {
-  warning("Employment register contains IDs not found in population register.")
-}
+valid_urbanicity <- c(
+  "urban",
+  "mixed",
+  "rural"
+)
 
-if (length(tax_missing_ids) > 0) {
-  warning("Tax register contains IDs not found in population register.")
-}
+valid_address_types <- c(
+  "single_family",
+  "multi_family",
+  "large_residential"
+)
 
-if (length(education_missing_ids) > 0) {
-  warning("Education register contains IDs not found in population register.")
-}
+address_clean <- address_raw %>%
 
-# ---------------------------------------------------------------------
-# 4. Clean population register
-# ---------------------------------------------------------------------
-message("Cleaning population register...")
-
-valid_region_codes <- sprintf("R%02d", 1:12)
-valid_registration_status <- c("main_residence", "secondary_residence")
-valid_citizenship_groups <- c("DE", "EU", "Non-EU")
-
-population_clean <- population_raw %>%
-  clean_names() %>%
   mutate(
-    registration_date = as.Date(registration_date),
-    last_move_date    = as.Date(last_move_date),
+    flag_duplicate_address_id =
+      duplicated(address_id),
 
-    # Validation flags
-    flag_duplicate_person_id = duplicated(person_id),
-    flag_invalid_region      = !region_code %in% valid_region_codes | is.na(region_code),
-    flag_invalid_age         = age < 0 | age > 100 | is.na(age),
-    flag_missing_registration_status =
-      is.na(registration_status) | !registration_status %in% valid_registration_status,
-    flag_invalid_citizenship_group =
-      is.na(citizenship_group) | !citizenship_group %in% valid_citizenship_groups,
-    flag_date_inconsistency =
-      !is.na(registration_date) & !is.na(last_move_date) & last_move_date < registration_date
+    flag_invalid_region =
+      is.na(region_code) |
+      !region_code %in% valid_region_codes,
+
+    flag_missing_municipality_code =
+      is.na(municipality_code) |
+      municipality_code == "",
+
+    flag_invalid_urbanicity =
+      is.na(urbanicity) |
+      !urbanicity %in% valid_urbanicity,
+
+    flag_invalid_address_type =
+      is.na(address_type) |
+      !address_type %in% valid_address_types
   ) %>%
+
   mutate(
-    # Rule-based cleaning
-    age = if_else(age < 0 | age > 100, NA_real_, as.numeric(age)),
-    registration_status = if_else(
-      registration_status %in% valid_registration_status,
-      registration_status,
+    region_code = if_else(
+      region_code %in% valid_region_codes,
+      region_code,
       NA_character_
     ),
-    citizenship_group = if_else(
-      citizenship_group %in% valid_citizenship_groups,
-      citizenship_group,
+
+    urbanicity = if_else(
+      urbanicity %in% valid_urbanicity,
+      urbanicity,
       NA_character_
     ),
-    last_move_date = if_else(
-      !is.na(registration_date) & !is.na(last_move_date) & last_move_date < registration_date,
-      registration_date,
-      last_move_date
-    ),
-    age_group = case_when(
-      !is.na(age) & age <= 5  ~ "0-5",
-      !is.na(age) & age <= 17 ~ "6-17",
-      !is.na(age) & age <= 24 ~ "18-24",
-      !is.na(age) & age <= 39 ~ "25-39",
-      !is.na(age) & age <= 64 ~ "40-64",
-      !is.na(age) & age <= 79 ~ "65-79",
-      !is.na(age)             ~ "80+",
-      TRUE                    ~ NA_character_
+
+    address_type = if_else(
+      address_type %in% valid_address_types,
+      address_type,
+      NA_character_
     )
   )
 
+
 # ---------------------------------------------------------------------
-# 5. Clean employment register
+# 7. Clean population register
 # ---------------------------------------------------------------------
+
+message("Cleaning population register...")
+
+valid_registration_status <- c(
+  "main_residence",
+  "secondary_residence"
+)
+
+valid_citizenship_groups <- c(
+  "DE",
+  "EU",
+  "Non-EU"
+)
+
+address_lookup <- address_clean %>%
+
+  select(
+    address_id,
+    address_region_code = region_code,
+    address_municipality_code = municipality_code
+  )
+
+population_clean <- population_raw %>%
+
+  mutate(
+    registration_date =
+      as.Date(registration_date),
+
+    last_move_date =
+      as.Date(last_move_date)
+  ) %>%
+
+  left_join(
+    address_lookup,
+    by = "address_id"
+  ) %>%
+
+  mutate(
+    flag_duplicate_person_id =
+      duplicated(person_id),
+
+    flag_address_not_found =
+      is.na(address_region_code),
+
+    flag_invalid_region =
+      is.na(region_code) |
+      !region_code %in% valid_region_codes,
+
+    flag_region_address_mismatch =
+      !is.na(region_code) &
+      !is.na(address_region_code) &
+      region_code != address_region_code,
+
+    flag_municipality_address_mismatch =
+      !is.na(municipality_code) &
+      !is.na(address_municipality_code) &
+      municipality_code != address_municipality_code,
+
+    flag_invalid_age =
+      is.na(age) |
+      age < 0 |
+      age > 100,
+
+    flag_missing_registration_status =
+      is.na(registration_status) |
+      !registration_status %in%
+        valid_registration_status,
+
+    flag_invalid_citizenship_group =
+      is.na(citizenship_group) |
+      !citizenship_group %in%
+        valid_citizenship_groups,
+
+    flag_date_inconsistency =
+      !is.na(registration_date) &
+      !is.na(last_move_date) &
+      last_move_date < registration_date
+  ) %>%
+
+  mutate(
+    age = if_else(
+      age < 0 |
+        age > 100,
+      NA_real_,
+      as.numeric(age)
+    ),
+
+    region_code = if_else(
+      region_code %in% valid_region_codes,
+      region_code,
+      NA_character_
+    ),
+
+    registration_status = if_else(
+      registration_status %in%
+        valid_registration_status,
+      registration_status,
+      NA_character_
+    ),
+
+    citizenship_group = if_else(
+      citizenship_group %in%
+        valid_citizenship_groups,
+      citizenship_group,
+      NA_character_
+    ),
+
+    last_move_date = if_else(
+      !is.na(registration_date) &
+        !is.na(last_move_date) &
+        last_move_date < registration_date,
+      registration_date,
+      last_move_date
+    ),
+
+    age_group = case_when(
+      !is.na(age) &
+        age <= 5 ~
+        "0-5",
+
+      !is.na(age) &
+        age <= 17 ~
+        "6-17",
+
+      !is.na(age) &
+        age <= 24 ~
+        "18-24",
+
+      !is.na(age) &
+        age <= 39 ~
+        "25-39",
+
+      !is.na(age) &
+        age <= 64 ~
+        "40-64",
+
+      !is.na(age) &
+        age <= 79 ~
+        "65-79",
+
+      !is.na(age) ~
+        "80+",
+
+      TRUE ~
+        NA_character_
+    )
+  ) %>%
+
+  select(
+    -address_region_code,
+    -address_municipality_code
+  )
+
+
+# ---------------------------------------------------------------------
+# 8. Prepare population-register demographics for cross-register checks
+# ---------------------------------------------------------------------
+# Auxiliary-only persons deliberately have no population-register
+# demographic information at this stage.
+
+population_demographics <- population_clean %>%
+
+  select(
+    person_id,
+    population_age = age
+  )
+
+
+# ---------------------------------------------------------------------
+# 9. Clean employment register
+# ---------------------------------------------------------------------
+
 message("Cleaning employment register...")
 
-valid_employment_status <- c("employed", "marginal", "self_employed", "no_record")
+valid_employment_status <- c(
+  "employed",
+  "marginal",
+  "self_employed",
+  "no_record"
+)
 
 employment_clean <- employment_raw %>%
-  clean_names() %>%
-  mutate(
-    ref_date = as.Date(ref_date),
 
-    # Validation flags
+  mutate(
+    ref_date =
+      as.Date(ref_date),
+
     flag_invalid_employment_status =
-      !employment_status %in% valid_employment_status | is.na(employment_status),
+      is.na(employment_status) |
+      !employment_status %in%
+        valid_employment_status,
+
     flag_negative_income =
-      !is.na(annual_employment_income) & annual_employment_income < 0,
+      !is.na(annual_employment_income) &
+      annual_employment_income < 0,
+
     flag_invalid_days_employed =
       !is.na(days_employed_last_12m) &
-      (days_employed_last_12m < 0 | days_employed_last_12m > 366)
+      (
+        days_employed_last_12m < 0 |
+        days_employed_last_12m > 366
+      )
   ) %>%
+
   left_join(
-    population_clean %>% select(person_id, age),
+    population_demographics,
     by = "person_id"
   ) %>%
-  mutate(
-    flag_employed_under_15 =
-      !is.na(age) &
-      age < 15 &
-      employment_status %in% c("employed", "marginal", "self_employed"),
 
-    # Rule-based cleaning
+  mutate(
+    in_population_register =
+      person_id %in%
+        population_clean$person_id,
+
+    flag_age_check_unavailable =
+      is.na(population_age),
+
+    flag_employed_under_15 =
+      !is.na(population_age) &
+      population_age < 15 &
+      employment_status %in%
+        c(
+          "employed",
+          "marginal",
+          "self_employed"
+        ),
+
     annual_employment_income = if_else(
-      !is.na(annual_employment_income) & annual_employment_income < 0,
+      !is.na(annual_employment_income) &
+        annual_employment_income < 0,
       NA_real_,
       annual_employment_income
     ),
+
     days_employed_last_12m = if_else(
       !is.na(days_employed_last_12m) &
-      (days_employed_last_12m < 0 | days_employed_last_12m > 366),
+        (
+          days_employed_last_12m < 0 |
+          days_employed_last_12m > 366
+        ),
       NA_real_,
       as.numeric(days_employed_last_12m)
     ),
+
     employment_status = if_else(
-      employment_status %in% valid_employment_status,
+      employment_status %in%
+        valid_employment_status,
       employment_status,
       NA_character_
     )
   )
 
+
 # ---------------------------------------------------------------------
-# 6. Clean tax register
+# 10. Clean tax register
 # ---------------------------------------------------------------------
+
 message("Cleaning tax register...")
 
 tax_clean <- tax_raw %>%
-  clean_names() %>%
+
   mutate(
-    # Validation flags
-    flag_invalid_tax_year = is.na(tax_year) | tax_year < 2000 | tax_year > 2030,
+    flag_invalid_tax_year =
+      is.na(tax_year) |
+      tax_year < 2000 |
+      tax_year > 2030,
+
     flag_negative_taxable_income =
-      !is.na(taxable_income) & taxable_income < 0
+      !is.na(taxable_income) &
+      taxable_income < 0
   ) %>%
+
   left_join(
-    population_clean %>% select(person_id, age),
+    population_demographics,
     by = "person_id"
   ) %>%
+
   mutate(
+    in_population_register =
+      person_id %in%
+        population_clean$person_id,
+
+    flag_age_check_unavailable =
+      is.na(population_age),
+
     flag_tax_under_14 =
-      !is.na(age) &
-      age < 14 &
+      !is.na(population_age) &
+      population_age < 14 &
       !is.na(tax_filing_flag) &
       tax_filing_flag == 1,
 
-    # Rule-based cleaning
     tax_year = if_else(
-      tax_year >= 2000 & tax_year <= 2030,
+      tax_year >= 2000 &
+        tax_year <= 2030,
       tax_year,
       NA_integer_
     ),
+
     taxable_income = if_else(
-      !is.na(taxable_income) & taxable_income < 0,
+      !is.na(taxable_income) &
+        taxable_income < 0,
       NA_real_,
       taxable_income
     )
   )
 
+
 # ---------------------------------------------------------------------
-# 7. Clean education register
+# 11. Clean education register
 # ---------------------------------------------------------------------
+
 message("Cleaning education register...")
 
-valid_institution_types <- c("school", "university", "vocational_school")
+valid_institution_types <- c(
+  "school",
+  "university",
+  "vocational_school"
+)
 
 education_clean <- education_raw %>%
-  clean_names() %>%
+
   left_join(
-    population_clean %>% select(person_id, age),
+    population_demographics,
     by = "person_id"
   ) %>%
+
   mutate(
-    # Validation flags
+    in_population_register =
+      person_id %in%
+        population_clean$person_id,
+
+    flag_age_check_unavailable =
+      is.na(population_age),
+
     flag_missing_institution_type =
       !is.na(enrolment_flag) &
       enrolment_flag == 1 &
       is.na(institution_type),
 
     flag_invalid_institution_type =
-      !is.na(institution_type) & !institution_type %in% valid_institution_types,
+      !is.na(institution_type) &
+      !institution_type %in%
+        valid_institution_types,
 
     flag_implausible_enrolment_age =
-      !is.na(age) &
+      !is.na(population_age) &
       !is.na(enrolment_flag) &
       enrolment_flag == 1 &
-      age > 35,
+      population_age > 35,
 
-    # Rule-based cleaning
     institution_type = if_else(
-      institution_type %in% valid_institution_types,
+      institution_type %in%
+        valid_institution_types,
       institution_type,
       NA_character_
     )
   )
 
+
 # ---------------------------------------------------------------------
-# 8. Cross-register consistency checks and activity summary
+# 12. Build source-level activity indicators
 # ---------------------------------------------------------------------
-message("Building cross-register activity summary...")
+
+message("Building cross-register activity indicators...")
 
 employment_activity <- employment_clean %>%
+
   transmute(
     person_id,
+
+    employment_contact_address_id =
+      contact_address_id,
+
+    in_employment_register = 1L,
+
     employment_signal = if_else(
       !is.na(employment_status) &
-      employment_status %in% c("employed", "marginal", "self_employed"),
-      1L, 0L
+        employment_status %in%
+          c(
+            "employed",
+            "marginal",
+            "self_employed"
+          ),
+      1L,
+      0L
     ),
-    flag_employed_under_15 = coalesce(flag_employed_under_15, FALSE)
+
+    flag_employed_under_15 =
+      coalesce(
+        flag_employed_under_15,
+        FALSE
+      )
   ) %>%
-  group_by(person_id) %>%
+
+  group_by(
+    person_id
+  ) %>%
+
   summarise(
-    employment_signal = max(employment_signal, na.rm = TRUE),
-    flag_employed_under_15 = max(flag_employed_under_15, na.rm = TRUE) == 1,
+    in_employment_register =
+      max(
+        in_employment_register,
+        na.rm = TRUE
+      ),
+
+    employment_signal =
+      max(
+        employment_signal,
+        na.rm = TRUE
+      ),
+
+    flag_employed_under_15 =
+      any(
+        flag_employed_under_15,
+        na.rm = TRUE
+      ),
+
+    employment_contact_address_id =
+      first(
+        employment_contact_address_id
+      ),
+
     .groups = "drop"
   )
+
 
 tax_activity <- tax_clean %>%
+
   transmute(
     person_id,
-    tax_signal = if_else(!is.na(tax_filing_flag) & tax_filing_flag == 1, 1L, 0L),
-    flag_tax_under_14 = coalesce(flag_tax_under_14, FALSE)
-  ) %>%
-  group_by(person_id) %>%
-  summarise(
-    tax_signal = max(tax_signal, na.rm = TRUE),
-    flag_tax_under_14 = max(flag_tax_under_14, na.rm = TRUE) == 1,
-    .groups = "drop"
-  )
 
-education_activity <- education_clean %>%
-  transmute(
-    person_id,
-    education_signal = if_else(!is.na(enrolment_flag) & enrolment_flag == 1, 1L, 0L),
-    flag_implausible_enrolment_age = coalesce(flag_implausible_enrolment_age, FALSE)
-  ) %>%
-  group_by(person_id) %>%
-  summarise(
-    education_signal = max(education_signal, na.rm = TRUE),
-    flag_implausible_enrolment_age =
-      max(flag_implausible_enrolment_age, na.rm = TRUE) == 1,
-    .groups = "drop"
-  )
+    tax_contact_address_id =
+      contact_address_id,
 
-register_activity_summary <- population_clean %>%
-  select(
-    person_id,
-    age,
-    age_group,
-    region_code,
-    registration_status,
-    resident_true,
-    overcoverage_flag_true
-  ) %>%
-  left_join(employment_activity, by = "person_id") %>%
-  left_join(tax_activity, by = "person_id") %>%
-  left_join(education_activity, by = "person_id") %>%
-  mutate(
-    employment_signal = coalesce(employment_signal, 0L),
-    tax_signal = coalesce(tax_signal, 0L),
-    education_signal = coalesce(education_signal, 0L),
+    in_tax_register = 1L,
 
-    n_activity_signals = employment_signal + tax_signal + education_signal,
-
-    flag_no_activity_signal = n_activity_signals == 0,
-
-    # Age-aware plausibility of "no activity"
-    flag_potential_overcoverage = case_when(
-      age_group %in% c("25-39", "40-64") & n_activity_signals == 0 ~ TRUE,
-      age_group == "18-24" & n_activity_signals == 0 ~ TRUE,
-      age_group == "80+"   & n_activity_signals == 0 ~ FALSE,
-      age_group == "0-5"   & n_activity_signals == 0 ~ FALSE,
-      TRUE ~ FALSE
+    tax_signal = if_else(
+      !is.na(tax_filing_flag) &
+        tax_filing_flag == 1,
+      1L,
+      0L
     ),
 
-    flag_employed_under_15 = coalesce(flag_employed_under_15, FALSE),
-    flag_tax_under_14 = coalesce(flag_tax_under_14, FALSE),
+    flag_tax_under_14 =
+      coalesce(
+        flag_tax_under_14,
+        FALSE
+      )
+  ) %>%
+
+  group_by(
+    person_id
+  ) %>%
+
+  summarise(
+    in_tax_register =
+      max(
+        in_tax_register,
+        na.rm = TRUE
+      ),
+
+    tax_signal =
+      max(
+        tax_signal,
+        na.rm = TRUE
+      ),
+
+    flag_tax_under_14 =
+      any(
+        flag_tax_under_14,
+        na.rm = TRUE
+      ),
+
+    tax_contact_address_id =
+      first(
+        tax_contact_address_id
+      ),
+
+    .groups = "drop"
+  )
+
+
+education_activity <- education_clean %>%
+
+  transmute(
+    person_id,
+
+    education_contact_address_id =
+      contact_address_id,
+
+    in_education_register = 1L,
+
+    education_signal = if_else(
+      !is.na(enrolment_flag) &
+        enrolment_flag == 1,
+      1L,
+      0L
+    ),
+
     flag_implausible_enrolment_age =
-      coalesce(flag_implausible_enrolment_age, FALSE)
+      coalesce(
+        flag_implausible_enrolment_age,
+        FALSE
+      )
+  ) %>%
+
+  group_by(
+    person_id
+  ) %>%
+
+  summarise(
+    in_education_register =
+      max(
+        in_education_register,
+        na.rm = TRUE
+      ),
+
+    education_signal =
+      max(
+        education_signal,
+        na.rm = TRUE
+      ),
+
+    flag_implausible_enrolment_age =
+      any(
+        flag_implausible_enrolment_age,
+        na.rm = TRUE
+      ),
+
+    education_contact_address_id =
+      first(
+        education_contact_address_id
+      ),
+
+    .groups = "drop"
+  )
+
+
+# ---------------------------------------------------------------------
+# 13. Construct observed person universe
+# ---------------------------------------------------------------------
+# The observed universe is the union of all persons appearing in at
+# least one observable administrative source.
+#
+# This differs fundamentally from Version 1, where the activity summary
+# was restricted to persons already present in the population register.
+
+observed_person_ids <- tibble(
+  person_id = sort(
+    unique(
+      c(
+        population_clean$person_id,
+        employment_clean$person_id,
+        tax_clean$person_id,
+        education_clean$person_id
+      )
+    )
+  )
+)
+
+
+# ---------------------------------------------------------------------
+# 14. Build neutral person-level register activity summary
+# ---------------------------------------------------------------------
+# No population-status classification is performed here.
+#
+# In particular:
+#   - absence of an activity signal is NOT interpreted as non-residence
+#   - auxiliary-only presence is NOT automatically interpreted as
+#     undercoverage
+#
+# These decisions belong to later methodological stages.
+
+register_activity_summary <- observed_person_ids %>%
+
+  left_join(
+    population_clean %>%
+      select(
+        person_id,
+        household_id,
+        address_id,
+        region_code,
+        municipality_code,
+        sex,
+        age,
+        age_group,
+        citizenship_group,
+        registration_status
+      ),
+    by = "person_id"
+  ) %>%
+
+  mutate(
+    in_population_register =
+      as.integer(
+        person_id %in%
+          population_clean$person_id
+      )
+  ) %>%
+
+  left_join(
+    employment_activity,
+    by = "person_id"
+  ) %>%
+
+  left_join(
+    tax_activity,
+    by = "person_id"
+  ) %>%
+
+  left_join(
+    education_activity,
+    by = "person_id"
+  ) %>%
+
+  mutate(
+    in_employment_register =
+      coalesce(
+        in_employment_register,
+        0L
+      ),
+
+    in_tax_register =
+      coalesce(
+        in_tax_register,
+        0L
+      ),
+
+    in_education_register =
+      coalesce(
+        in_education_register,
+        0L
+      ),
+
+    employment_signal =
+      coalesce(
+        employment_signal,
+        0L
+      ),
+
+    tax_signal =
+      coalesce(
+        tax_signal,
+        0L
+      ),
+
+    education_signal =
+      coalesce(
+        education_signal,
+        0L
+      ),
+
+    n_auxiliary_sources =
+      in_employment_register +
+      in_tax_register +
+      in_education_register,
+
+    n_activity_signals =
+      employment_signal +
+      tax_signal +
+      education_signal,
+
+    observed_source_status = case_when(
+
+      in_population_register == 1L &
+        n_auxiliary_sources > 0 ~
+        "registered_with_auxiliary_record",
+
+      in_population_register == 1L &
+        n_auxiliary_sources == 0 ~
+        "registered_only",
+
+      in_population_register == 0L &
+        n_activity_signals > 0 ~
+        "auxiliary_only_with_activity",
+
+      TRUE ~
+        "auxiliary_only_without_positive_activity"
+    ),
+
+    flag_no_activity_signal =
+      n_activity_signals == 0,
+
+    flag_registered_without_activity =
+      in_population_register == 1L &
+      n_activity_signals == 0,
+
+    flag_auxiliary_only =
+      in_population_register == 0L &
+      n_auxiliary_sources > 0,
+
+    flag_auxiliary_only_with_activity =
+      in_population_register == 0L &
+      n_activity_signals > 0,
+
+    flag_employed_under_15 =
+      coalesce(
+        flag_employed_under_15,
+        FALSE
+      ),
+
+    flag_tax_under_14 =
+      coalesce(
+        flag_tax_under_14,
+        FALSE
+      ),
+
+    flag_implausible_enrolment_age =
+      coalesce(
+        flag_implausible_enrolment_age,
+        FALSE
+      ),
+
+    flag_any_cross_register_plausibility_issue =
+      flag_employed_under_15 |
+      flag_tax_under_14 |
+      flag_implausible_enrolment_age
+  ) %>%
+
+  rowwise() %>%
+
+  mutate(
+    n_contact_addresses_available =
+      sum(
+        !is.na(
+          c_across(
+            c(
+              employment_contact_address_id,
+              tax_contact_address_id,
+              education_contact_address_id
+            )
+          )
+        )
+      ),
+
+    n_distinct_contact_addresses =
+      n_distinct(
+        c_across(
+          c(
+            employment_contact_address_id,
+            tax_contact_address_id,
+            education_contact_address_id
+          )
+        ),
+        na.rm = TRUE
+      ),
+
+    flag_auxiliary_address_conflict =
+      n_distinct_contact_addresses > 1,
+
+    consistent_auxiliary_address_id = {
+
+      observed_addresses <- c_across(
+        c(
+          employment_contact_address_id,
+          tax_contact_address_id,
+          education_contact_address_id
+        )
+      )
+
+      observed_addresses <- observed_addresses[
+        !is.na(observed_addresses)
+      ]
+
+      if (
+        length(observed_addresses) > 0 &&
+        n_distinct(observed_addresses) == 1
+      ) {
+
+        observed_addresses[[1]]
+
+      } else {
+
+        NA_character_
+      }
+    },
+
+    n_contact_addresses_matching_population = {
+
+      if (
+        is.na(address_id)
+      ) {
+
+        NA_integer_
+
+      } else {
+
+        observed_addresses <- c_across(
+          c(
+            employment_contact_address_id,
+            tax_contact_address_id,
+            education_contact_address_id
+          )
+        )
+
+        as.integer(
+          sum(
+            observed_addresses == address_id,
+            na.rm = TRUE
+          )
+        )
+      }
+    },
+
+    flag_population_auxiliary_address_disagreement =
+      in_population_register == 1L &
+      n_contact_addresses_available > 0 &
+      n_contact_addresses_matching_population == 0
+  ) %>%
+
+  ungroup() %>%
+
+  left_join(
+    address_clean %>%
+      transmute(
+        consistent_auxiliary_address_id =
+          address_id,
+
+        consistent_auxiliary_region_code =
+          region_code,
+
+        consistent_auxiliary_municipality_code =
+          municipality_code
+      ),
+    by = "consistent_auxiliary_address_id"
   )
 
 # ---------------------------------------------------------------------
-# 9. Optional summary messages
+# 15. Validation and diagnostic summary
 # ---------------------------------------------------------------------
-message("Summary of validation flags:")
-message("Population register: invalid age cases = ",
-        sum(population_clean$flag_invalid_age, na.rm = TRUE))
-message("Population register: invalid region cases = ",
-        sum(population_clean$flag_invalid_region, na.rm = TRUE))
-message("Employment register: employed under 15 = ",
-        sum(employment_clean$flag_employed_under_15, na.rm = TRUE))
-message("Tax register: tax filing under 14 = ",
-        sum(tax_clean$flag_tax_under_14, na.rm = TRUE))
-message("Activity summary: no activity signal = ",
-        sum(register_activity_summary$flag_no_activity_signal, na.rm = TRUE))
-message("Activity summary: potential overcoverage = ",
-        sum(register_activity_summary$flag_potential_overcoverage, na.rm = TRUE))
+
+message("Summary of validation results:")
+
+message(
+  "Address register: invalid region cases = ",
+  sum(
+    address_clean$flag_invalid_region,
+    na.rm = TRUE
+  )
+)
+
+message(
+  "Population register: invalid age cases = ",
+  sum(
+    population_clean$flag_invalid_age,
+    na.rm = TRUE
+  )
+)
+
+message(
+  "Population register: invalid region cases = ",
+  sum(
+    population_clean$flag_invalid_region,
+    na.rm = TRUE
+  )
+)
+
+message(
+  "Population register: address-region mismatches = ",
+  sum(
+    population_clean$flag_region_address_mismatch,
+    na.rm = TRUE
+  )
+)
+
+message(
+  "Employment register: employed under 15 = ",
+  sum(
+    employment_clean$flag_employed_under_15,
+    na.rm = TRUE
+  )
+)
+
+message(
+  "Tax register: tax filing under 14 = ",
+  sum(
+    tax_clean$flag_tax_under_14,
+    na.rm = TRUE
+  )
+)
+
+message(
+  "Education register: implausible enrolment age = ",
+  sum(
+    education_clean$flag_implausible_enrolment_age,
+    na.rm = TRUE
+  )
+)
+
+message(
+  "Observed persons across all registers = ",
+  nrow(
+    register_activity_summary
+  )
+)
+
+message(
+  "Registered persons with no positive activity signal = ",
+  sum(
+    register_activity_summary$
+      flag_registered_without_activity,
+    na.rm = TRUE
+  )
+)
+
+message(
+  "Auxiliary-only persons = ",
+  sum(
+    register_activity_summary$
+      flag_auxiliary_only,
+    na.rm = TRUE
+  )
+)
+
+message(
+  "Auxiliary-only persons with positive activity = ",
+  sum(
+    register_activity_summary$
+      flag_auxiliary_only_with_activity,
+    na.rm = TRUE
+  )
+)
+
+message(
+  "Auxiliary-only persons with at least one contact address = ",
+  sum(
+    register_activity_summary$
+      flag_auxiliary_only &
+      register_activity_summary$
+        n_contact_addresses_available > 0,
+    na.rm = TRUE
+  )
+)
+
+message(
+  "Auxiliary-only persons with a consistent auxiliary address = ",
+  sum(
+    register_activity_summary$
+      flag_auxiliary_only &
+      !is.na(
+        register_activity_summary$
+          consistent_auxiliary_address_id
+      ),
+    na.rm = TRUE
+  )
+)
+
+message(
+  "Persons with conflicting auxiliary contact addresses = ",
+  sum(
+    register_activity_summary$
+      flag_auxiliary_address_conflict,
+    na.rm = TRUE
+  )
+)
+
+message(
+  "Registered persons with auxiliary addresses all differing from population-register address = ",
+  sum(
+    register_activity_summary$
+      flag_population_auxiliary_address_disagreement,
+    na.rm = TRUE
+  )
+)
 
 # ---------------------------------------------------------------------
-# 10. Write cleaned datasets
+# 16. Write cleaned datasets
 # ---------------------------------------------------------------------
+
+write_csv(
+  address_clean,
+  "data/clean/address_register_clean.csv"
+)
+
 write_csv(
   population_clean,
   "data/clean/population_register_clean.csv"
@@ -394,5 +1426,10 @@ write_csv(
   "data/clean/register_activity_summary.csv"
 )
 
-message("Cleaning and validation completed successfully.")
-message("Files written to data/clean/")
+message(
+  "Cleaning and validation completed successfully."
+)
+
+message(
+  "Files written to data/clean/"
+)

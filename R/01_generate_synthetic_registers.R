@@ -1218,7 +1218,133 @@ education_register <- education_register %>%
 
 
 # ---------------------------------------------------------------------
-# 15. Write datasets to disk
+# 15. Add source-specific administrative contact addresses
+# ---------------------------------------------------------------------
+# Auxiliary administrative sources may contain an address associated
+# with the person. This address is treated as source-specific contact
+# information, not as proof of current residence.
+#
+# For most records the administrative contact address corresponds to
+# the current address of a true resident or the former address of a
+# former resident. A small share contains another address in the same
+# region or no usable address.
+#
+# These probabilities are illustrative simulation parameters.
+
+contact_address_reference_prob <- 0.94
+contact_address_alternative_prob <- 0.03
+
+
+assign_contact_address <- function(
+    data,
+    truth_data,
+    address_data,
+    reference_prob,
+    alternative_prob
+) {
+
+  data %>%
+
+    left_join(
+      truth_data %>%
+        transmute(
+          person_id,
+
+          reference_address_id = if_else(
+            true_resident == 1L,
+            true_address_id,
+            former_address_id
+          ),
+
+          reference_region_code = if_else(
+            true_resident == 1L,
+            true_region_code,
+            former_region_code
+          )
+        ),
+      by = "person_id"
+    ) %>%
+
+    mutate(
+      address_draw = runif(n()),
+
+      alternative_address_id = map2_chr(
+        reference_address_id,
+        reference_region_code,
+        function(reference_id, region_id) {
+
+          if (is.na(region_id)) {
+            return(NA_character_)
+          }
+
+          candidate_addresses <- address_data$address_id[
+            address_data$region_code == region_id &
+              address_data$address_id != reference_id
+          ]
+
+          if (length(candidate_addresses) == 0) {
+            return(NA_character_)
+          }
+
+          sample(
+            candidate_addresses,
+            size = 1
+          )
+        }
+      ),
+
+      contact_address_id = case_when(
+        address_draw < reference_prob ~
+          reference_address_id,
+
+        address_draw <
+          reference_prob +
+          alternative_prob ~
+          alternative_address_id,
+
+        TRUE ~
+          NA_character_
+      )
+    ) %>%
+
+    select(
+      -reference_address_id,
+      -reference_region_code,
+      -address_draw,
+      -alternative_address_id
+    )
+}
+
+
+employment_register <- employment_register %>%
+  assign_contact_address(
+    truth_data = synthetic_population_truth,
+    address_data = address_register,
+    reference_prob = contact_address_reference_prob,
+    alternative_prob = contact_address_alternative_prob
+  )
+
+
+tax_register <- tax_register %>%
+  assign_contact_address(
+    truth_data = synthetic_population_truth,
+    address_data = address_register,
+    reference_prob = contact_address_reference_prob,
+    alternative_prob = contact_address_alternative_prob
+  )
+
+
+education_register <- education_register %>%
+  assign_contact_address(
+    truth_data = synthetic_population_truth,
+    address_data = address_register,
+    reference_prob = contact_address_reference_prob,
+    alternative_prob = contact_address_alternative_prob
+  )
+
+
+# ---------------------------------------------------------------------
+# 16. Write datasets to disk
 # ---------------------------------------------------------------------
 
 write_csv(
@@ -1253,7 +1379,7 @@ write_csv(
 
 
 # ---------------------------------------------------------------------
-# 16. Print generation summary
+# 17. Print generation summary
 # ---------------------------------------------------------------------
 
 n_undercoverage <- sum(
