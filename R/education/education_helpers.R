@@ -166,3 +166,388 @@ classify_attainment_relation <- function(
     call. = FALSE
   )
 }
+
+
+# ---------------------------------------------------------------------
+# Consolidate one or more attainment ranges within a reference year
+# ---------------------------------------------------------------------
+
+consolidate_same_year_attainment <- function(
+  level_min,
+  level_max
+) {
+
+  if (
+    length(level_min) == 0L ||
+    length(level_max) == 0L
+  ) {
+    stop(
+      "At least one attainment observation is required.",
+      call. = FALSE
+    )
+  }
+
+  if (
+    length(level_min) !=
+      length(level_max)
+  ) {
+    stop(
+      "Attainment minimum and maximum vectors must have equal length.",
+      call. = FALSE
+    )
+  }
+
+  for (
+    observation_index in
+      seq_along(level_min)
+  ) {
+
+    assert_valid_attainment_range(
+      level_min[
+        observation_index
+      ],
+      level_max[
+        observation_index
+      ]
+    )
+  }
+
+
+  consolidated_min <-
+    max(
+      level_min
+    )
+
+  consolidated_max <-
+    min(
+      level_max
+    )
+
+
+  if (
+    consolidated_min >
+      consolidated_max
+  ) {
+
+    return(
+      list(
+        compatible = FALSE,
+        level_min = NA_integer_,
+        level_max = NA_integer_,
+        decision_reason =
+          "same_year_conflict"
+      )
+    )
+  }
+
+
+  list(
+    compatible = TRUE,
+    level_min =
+      as.integer(
+        consolidated_min
+      ),
+    level_max =
+      as.integer(
+        consolidated_max
+      ),
+    decision_reason =
+      if (
+        length(level_min) == 1L
+      ) {
+        "single_observation"
+      } else {
+        "same_year_compatible"
+      }
+  )
+}
+
+
+# ---------------------------------------------------------------------
+# Resolve an attainment state across reference years
+# ---------------------------------------------------------------------
+
+resolve_attainment_state <- function(
+  previous_min = NA_integer_,
+  previous_max = NA_integer_,
+  new_min = NA_integer_,
+  new_max = NA_integer_,
+  new_same_year_conflict = FALSE
+) {
+
+  if (
+    length(new_same_year_conflict) != 1L ||
+    is.na(new_same_year_conflict) ||
+    !is.logical(new_same_year_conflict)
+  ) {
+    stop(
+      "new_same_year_conflict must be TRUE or FALSE.",
+      call. = FALSE
+    )
+  }
+
+
+  previous_missing <-
+    is.na(previous_min) &&
+    is.na(previous_max)
+
+  new_missing <-
+    is.na(new_min) &&
+    is.na(new_max)
+
+
+  if (
+    xor(
+      is.na(previous_min),
+      is.na(previous_max)
+    )
+  ) {
+    stop(
+      "Previous attainment range must be fully present or fully missing.",
+      call. = FALSE
+    )
+  }
+
+  if (
+    xor(
+      is.na(new_min),
+      is.na(new_max)
+    )
+  ) {
+    stop(
+      "New attainment range must be fully present or fully missing.",
+      call. = FALSE
+    )
+  }
+
+
+  if (!previous_missing) {
+    assert_valid_attainment_range(
+      previous_min,
+      previous_max
+    )
+  }
+
+  if (!new_missing) {
+    assert_valid_attainment_range(
+      new_min,
+      new_max
+    )
+  }
+
+
+  if (
+    new_same_year_conflict &&
+    !new_missing
+  ) {
+    stop(
+      paste(
+        "A same-year conflict cannot also contain",
+        "a consolidated new attainment range."
+      ),
+      call. = FALSE
+    )
+  }
+
+
+  # No usable evidence in either period
+  if (
+    previous_missing &&
+    new_missing &&
+    !new_same_year_conflict
+  ) {
+    return(
+      list(
+        status = "not_reported",
+        level_min = NA_integer_,
+        level_max = NA_integer_,
+        decision_reason = "no_usable_evidence"
+      )
+    )
+  }
+
+
+  # Current-year conflict without an earlier accepted state
+  if (
+    previous_missing &&
+    new_same_year_conflict
+  ) {
+    return(
+      list(
+        status = "review_required",
+        level_min = NA_integer_,
+        level_max = NA_integer_,
+        decision_reason = "same_year_conflict"
+      )
+    )
+  }
+
+
+  # Current-year conflict with an earlier accepted state
+  if (
+    !previous_missing &&
+    new_same_year_conflict
+  ) {
+    return(
+      list(
+        status = "review_required",
+        level_min =
+          as.integer(
+            previous_min
+          ),
+        level_max =
+          as.integer(
+            previous_max
+          ),
+        decision_reason =
+          "same_year_conflict_retained_prior"
+      )
+    )
+  }
+
+
+  # Earlier evidence exists but no later observation is available
+  if (
+    !previous_missing &&
+    new_missing
+  ) {
+    return(
+      list(
+        status = "accepted",
+        level_min =
+          as.integer(
+            previous_min
+          ),
+        level_max =
+          as.integer(
+            previous_max
+          ),
+        decision_reason = "carry_forward"
+      )
+    )
+  }
+
+
+  # First usable attainment evidence
+  if (
+    previous_missing &&
+    !new_missing
+  ) {
+    return(
+      list(
+        status = "accepted",
+        level_min =
+          as.integer(
+            new_min
+          ),
+        level_max =
+          as.integer(
+            new_max
+          ),
+        decision_reason = "initial_observation"
+      )
+    )
+  }
+
+
+  relation <-
+    classify_attainment_relation(
+      previous_min,
+      previous_max,
+      new_min,
+      new_max,
+      same_reference_year = FALSE
+    )
+
+
+  if (
+    relation == "compatible"
+  ) {
+
+    refined_range <-
+      intersect_attainment_ranges(
+        previous_min,
+        previous_max,
+        new_min,
+        new_max
+      )
+
+    retained_previous <-
+      refined_range[["level_min"]] ==
+        previous_min &&
+      refined_range[["level_max"]] ==
+        previous_max
+
+    return(
+      list(
+        status = "accepted",
+        level_min =
+          as.integer(
+            refined_range[["level_min"]]
+          ),
+        level_max =
+          as.integer(
+            refined_range[["level_max"]]
+          ),
+        decision_reason =
+          if (
+            retained_previous
+          ) {
+            "compatible_retained"
+          } else {
+            "compatible_refinement"
+          }
+      )
+    )
+  }
+
+
+  if (
+    relation ==
+      "upward_progression"
+  ) {
+    return(
+      list(
+        status = "accepted",
+        level_min =
+          as.integer(
+            new_min
+          ),
+        level_max =
+          as.integer(
+            new_max
+          ),
+        decision_reason =
+          "upward_progression"
+      )
+    )
+  }
+
+
+  if (
+    relation ==
+      "temporal_regression"
+  ) {
+    return(
+      list(
+        status = "review_required",
+        level_min =
+          as.integer(
+            previous_min
+          ),
+        level_max =
+          as.integer(
+            previous_max
+          ),
+        decision_reason =
+          "temporal_regression"
+      )
+    )
+  }
+
+
+  stop(
+    "Unable to resolve longitudinal attainment state.",
+    call. = FALSE
+  )
+}
