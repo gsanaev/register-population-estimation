@@ -1728,3 +1728,490 @@ message(
     ba_2024_delivery
   )
 )
+
+
+# ---------------------------------------------------------------------
+# 14. Define Mikrozensus-like 2024 delivery parameters
+# ---------------------------------------------------------------------
+# This source represents a smaller survey-like delivery with detailed
+# attainment categories. All coverage and error rates are illustrative
+# simulation parameters rather than estimates of actual survey quality.
+
+mikrozensus_2024_seed <- 20242L
+
+mikrozensus_2024_coverage <- 0.08
+
+mikrozensus_2024_measurement_error_rate <- 0.015
+mikrozensus_2024_missing_code_rate <- 0.010
+mikrozensus_2024_unknown_code_rate <- 0.004
+mikrozensus_2024_invalid_year_rate <- 0.002
+mikrozensus_2024_missing_person_id_rate <- 0.002
+mikrozensus_2024_duplicate_rate <- 0.005
+
+mikrozensus_2024_codes <- c(
+  "E1",
+  "E2",
+  "E3",
+  "E4",
+  "E5",
+  "E6"
+)
+
+
+# ---------------------------------------------------------------------
+# 15. Generate Mikrozensus-like 2024 source evidence
+# ---------------------------------------------------------------------
+
+set.seed(
+  mikrozensus_2024_seed
+)
+
+mikrozensus_truth_2024 <-
+  bind_rows(
+    education_truth_2024_existing,
+    education_truth_2024_new
+  ) %>%
+
+  arrange(
+    person_id
+  )
+
+
+n_mikrozensus_2024_base <-
+  floor(
+    nrow(
+      mikrozensus_truth_2024
+    ) *
+      mikrozensus_2024_coverage
+  )
+
+
+mikrozensus_2024_working <-
+  mikrozensus_truth_2024 %>%
+
+  slice_sample(
+    n = n_mikrozensus_2024_base
+  ) %>%
+
+  mutate(
+    observed_attainment_level =
+      true_attainment_level
+  )
+
+
+n_mikrozensus_measurement_error <-
+  floor(
+    n_mikrozensus_2024_base *
+      mikrozensus_2024_measurement_error_rate
+  )
+
+n_mikrozensus_missing_code <-
+  floor(
+    n_mikrozensus_2024_base *
+      mikrozensus_2024_missing_code_rate
+  )
+
+n_mikrozensus_unknown_code <-
+  floor(
+    n_mikrozensus_2024_base *
+      mikrozensus_2024_unknown_code_rate
+  )
+
+n_mikrozensus_invalid_year <-
+  floor(
+    n_mikrozensus_2024_base *
+      mikrozensus_2024_invalid_year_rate
+  )
+
+n_mikrozensus_missing_person_id <-
+  floor(
+    n_mikrozensus_2024_base *
+      mikrozensus_2024_missing_person_id_rate
+  )
+
+n_mikrozensus_duplicate_records <-
+  floor(
+    n_mikrozensus_2024_base *
+      mikrozensus_2024_duplicate_rate
+  )
+
+
+mikrozensus_available_indices <-
+  seq_len(
+    n_mikrozensus_2024_base
+  )
+
+
+mikrozensus_measurement_error_indices <-
+  sample(
+    mikrozensus_available_indices,
+    size =
+      n_mikrozensus_measurement_error
+  )
+
+mikrozensus_available_indices <-
+  setdiff(
+    mikrozensus_available_indices,
+    mikrozensus_measurement_error_indices
+  )
+
+
+mikrozensus_missing_code_indices <-
+  sample(
+    mikrozensus_available_indices,
+    size =
+      n_mikrozensus_missing_code
+  )
+
+mikrozensus_available_indices <-
+  setdiff(
+    mikrozensus_available_indices,
+    mikrozensus_missing_code_indices
+  )
+
+
+mikrozensus_unknown_code_indices <-
+  sample(
+    mikrozensus_available_indices,
+    size =
+      n_mikrozensus_unknown_code
+  )
+
+mikrozensus_available_indices <-
+  setdiff(
+    mikrozensus_available_indices,
+    mikrozensus_unknown_code_indices
+  )
+
+
+mikrozensus_invalid_year_indices <-
+  sample(
+    mikrozensus_available_indices,
+    size =
+      n_mikrozensus_invalid_year
+  )
+
+mikrozensus_available_indices <-
+  setdiff(
+    mikrozensus_available_indices,
+    mikrozensus_invalid_year_indices
+  )
+
+
+mikrozensus_missing_person_id_indices <-
+  sample(
+    mikrozensus_available_indices,
+    size =
+      n_mikrozensus_missing_person_id
+  )
+
+mikrozensus_available_indices <-
+  setdiff(
+    mikrozensus_available_indices,
+    mikrozensus_missing_person_id_indices
+  )
+
+
+mikrozensus_duplicate_indices <-
+  sample(
+    mikrozensus_available_indices,
+    size =
+      n_mikrozensus_duplicate_records
+  )
+
+
+for (
+  index in
+    mikrozensus_measurement_error_indices
+) {
+
+  mikrozensus_2024_working$
+    observed_attainment_level[index] <-
+    sample_alternative_attainment(
+      true_level =
+        mikrozensus_2024_working$
+          true_attainment_level[index],
+      age_value =
+        mikrozensus_2024_working$
+          age_at_reference_year[index]
+    )
+}
+
+
+realised_mikrozensus_measurement_errors <-
+  sum(
+    mikrozensus_2024_working$
+      observed_attainment_level !=
+      mikrozensus_2024_working$
+        true_attainment_level
+  )
+
+if (
+  realised_mikrozensus_measurement_errors !=
+    n_mikrozensus_measurement_error
+) {
+  stop(
+    paste(
+      "Unexpected number of realised",
+      "Mikrozensus-like measurement errors."
+    ),
+    call. = FALSE
+  )
+}
+
+
+mikrozensus_2024_delivery <-
+  mikrozensus_2024_working %>%
+
+  transmute(
+    person_id,
+    survey_year = 2024L,
+    education_code =
+      mikrozensus_2024_codes[
+        observed_attainment_level
+      ]
+  )
+
+
+mikrozensus_2024_delivery$
+  education_code[
+    mikrozensus_missing_code_indices
+  ] <- NA_character_
+
+mikrozensus_2024_delivery$
+  education_code[
+    mikrozensus_unknown_code_indices
+  ] <- "E_UNKNOWN"
+
+mikrozensus_2024_delivery$
+  survey_year[
+    mikrozensus_invalid_year_indices
+  ] <- 2023L
+
+mikrozensus_2024_delivery$
+  person_id[
+    mikrozensus_missing_person_id_indices
+  ] <- NA_character_
+
+
+mikrozensus_2024_duplicates <-
+  mikrozensus_2024_delivery[
+    mikrozensus_duplicate_indices,
+    ,
+    drop = FALSE
+  ]
+
+
+mikrozensus_2024_delivery <-
+  bind_rows(
+    mikrozensus_2024_delivery,
+    mikrozensus_2024_duplicates
+  )
+
+
+# ---------------------------------------------------------------------
+# 16. Validate and write Mikrozensus-like 2024 delivery
+# ---------------------------------------------------------------------
+
+expected_mikrozensus_rows <-
+  n_mikrozensus_2024_base +
+  n_mikrozensus_duplicate_records
+
+if (
+  nrow(
+    mikrozensus_2024_delivery
+  ) !=
+    expected_mikrozensus_rows
+) {
+  stop(
+    "Unexpected number of Mikrozensus-like delivery rows.",
+    call. = FALSE
+  )
+}
+
+if (
+  sum(
+    is.na(
+      mikrozensus_2024_delivery$
+        person_id
+    )
+  ) !=
+    n_mikrozensus_missing_person_id
+) {
+  stop(
+    paste(
+      "Unexpected number of missing",
+      "Mikrozensus-like person_id values."
+    ),
+    call. = FALSE
+  )
+}
+
+if (
+  sum(
+    is.na(
+      mikrozensus_2024_delivery$
+        education_code
+    )
+  ) !=
+    n_mikrozensus_missing_code
+) {
+  stop(
+    paste(
+      "Unexpected number of missing",
+      "Mikrozensus-like education codes."
+    ),
+    call. = FALSE
+  )
+}
+
+if (
+  sum(
+    mikrozensus_2024_delivery$
+      education_code ==
+      "E_UNKNOWN",
+    na.rm = TRUE
+  ) !=
+    n_mikrozensus_unknown_code
+) {
+  stop(
+    paste(
+      "Unexpected number of unknown",
+      "Mikrozensus-like education codes."
+    ),
+    call. = FALSE
+  )
+}
+
+if (
+  sum(
+    mikrozensus_2024_delivery$
+      survey_year != 2024L
+  ) !=
+    n_mikrozensus_invalid_year
+) {
+  stop(
+    paste(
+      "Unexpected number of invalid",
+      "Mikrozensus-like survey years."
+    ),
+    call. = FALSE
+  )
+}
+
+
+mikrozensus_duplicate_keys <-
+  mikrozensus_2024_delivery %>%
+
+  filter(
+    !is.na(person_id)
+  ) %>%
+
+  count(
+    person_id,
+    survey_year
+  ) %>%
+
+  filter(
+    n > 1L
+  )
+
+if (
+  nrow(
+    mikrozensus_duplicate_keys
+  ) !=
+    n_mikrozensus_duplicate_records
+) {
+  stop(
+    paste(
+      "Unexpected number of duplicated",
+      "Mikrozensus-like person-year keys."
+    ),
+    call. = FALSE
+  )
+}
+
+
+if (
+  mikrozensus_2024_delivery %>%
+
+    filter(
+      !is.na(person_id)
+    ) %>%
+
+    anti_join(
+      mikrozensus_truth_2024 %>%
+        select(
+          person_id
+        ),
+      by = "person_id"
+    ) %>%
+
+    nrow() >
+    0L
+) {
+  stop(
+    paste(
+      "Mikrozensus-like delivery contains persons",
+      "outside the 2024 education truth."
+    ),
+    call. = FALSE
+  )
+}
+
+
+write_csv(
+  mikrozensus_2024_delivery,
+  file.path(
+    education_raw_dir,
+    "mikrozensus_2024_like_delivery.csv"
+  ),
+  na = ""
+)
+
+
+message(
+  "Mikrozensus-like 2024 delivery generated successfully."
+)
+
+message(
+  "Base source records: ",
+  n_mikrozensus_2024_base
+)
+
+message(
+  "Measurement errors: ",
+  n_mikrozensus_measurement_error
+)
+
+message(
+  "Missing education codes: ",
+  n_mikrozensus_missing_code
+)
+
+message(
+  "Unknown education codes: ",
+  n_mikrozensus_unknown_code
+)
+
+message(
+  "Invalid survey years: ",
+  n_mikrozensus_invalid_year
+)
+
+message(
+  "Missing person IDs: ",
+  n_mikrozensus_missing_person_id
+)
+
+message(
+  "Duplicate records added: ",
+  n_mikrozensus_duplicate_records
+)
+
+message(
+  "Raw delivery rows: ",
+  nrow(
+    mikrozensus_2024_delivery
+  )
+)
