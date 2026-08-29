@@ -1099,3 +1099,632 @@ message(
     zensus_2022_delivery
   )
 )
+
+
+# ---------------------------------------------------------------------
+# 11. Define BA-like 2024 delivery parameters
+# ---------------------------------------------------------------------
+# Coverage differs by age to represent an administrative source with
+# stronger working-age coverage. All rates remain illustrative synthetic
+# parameters and are not estimates of actual BA data quality.
+
+ba_2024_seed <- 20241L
+
+ba_2024_coverage_15_17 <- 0.10
+ba_2024_coverage_18_64 <- 0.55
+ba_2024_coverage_65_plus <- 0.15
+
+ba_2024_measurement_error_rate <- 0.015
+ba_2024_missing_qualification_rate <- 0.010
+ba_2024_unknown_code_rate <- 0.004
+ba_2024_invalid_year_rate <- 0.002
+ba_2024_missing_person_id_rate <- 0.002
+ba_2024_duplicate_rate <- 0.005
+
+ba_2024_groups <- c(
+  "LOW_NONE",
+  "SCHOOL_VOC",
+  "HIGHER_ED"
+)
+
+
+ba_group_from_level <- function(level) {
+
+  case_when(
+    level == 1L ~ "LOW_NONE",
+    level %in% 2:3 ~ "SCHOOL_VOC",
+    level %in% 4:6 ~ "HIGHER_ED",
+    TRUE ~ NA_character_
+  )
+}
+
+
+sample_alternative_ba_group <- function(
+  true_group,
+  age_value
+) {
+
+  allowed_groups <- c(
+    "LOW_NONE",
+    "SCHOOL_VOC"
+  )
+
+  if (age_value >= 20L) {
+    allowed_groups <- c(
+      allowed_groups,
+      "HIGHER_ED"
+    )
+  }
+
+  true_group_index <-
+    match(
+      true_group,
+      ba_2024_groups
+    )
+
+  candidate_indices <-
+    match(
+      allowed_groups,
+      ba_2024_groups
+    )
+
+  candidate_indices <-
+    candidate_indices[
+      candidate_indices !=
+        true_group_index
+    ]
+
+  if (length(candidate_indices) == 0L) {
+    stop(
+      "No alternative BA-like qualification group available.",
+      call. = FALSE
+    )
+  }
+
+  distance_from_truth <-
+    abs(
+      candidate_indices -
+        true_group_index
+    )
+
+  nearest_indices <-
+    candidate_indices[
+      distance_from_truth ==
+        min(distance_from_truth)
+    ]
+
+  selected_index <-
+    nearest_indices[
+      sample.int(
+        length(nearest_indices),
+        size = 1L
+      )
+    ]
+
+  ba_2024_groups[
+    selected_index
+  ]
+}
+
+
+# ---------------------------------------------------------------------
+# 12. Generate BA-like 2024 source evidence
+# ---------------------------------------------------------------------
+
+set.seed(
+  ba_2024_seed
+)
+
+education_truth_2024 <-
+  bind_rows(
+    education_truth_2024_existing,
+    education_truth_2024_new
+  ) %>%
+
+  arrange(
+    person_id
+  )
+
+
+ba_2024_population_15_17 <-
+  education_truth_2024 %>%
+
+  filter(
+    age_at_reference_year >= 15L,
+    age_at_reference_year <= 17L
+  )
+
+
+ba_2024_population_18_64 <-
+  education_truth_2024 %>%
+
+  filter(
+    age_at_reference_year >= 18L,
+    age_at_reference_year <= 64L
+  )
+
+
+ba_2024_population_65_plus <-
+  education_truth_2024 %>%
+
+  filter(
+    age_at_reference_year >= 65L
+  )
+
+
+n_ba_2024_15_17 <-
+  floor(
+    nrow(
+      ba_2024_population_15_17
+    ) *
+      ba_2024_coverage_15_17
+  )
+
+n_ba_2024_18_64 <-
+  floor(
+    nrow(
+      ba_2024_population_18_64
+    ) *
+      ba_2024_coverage_18_64
+  )
+
+n_ba_2024_65_plus <-
+  floor(
+    nrow(
+      ba_2024_population_65_plus
+    ) *
+      ba_2024_coverage_65_plus
+  )
+
+
+ba_2024_working <-
+  bind_rows(
+    ba_2024_population_15_17 %>%
+      slice_sample(
+        n = n_ba_2024_15_17
+      ),
+
+    ba_2024_population_18_64 %>%
+      slice_sample(
+        n = n_ba_2024_18_64
+      ),
+
+    ba_2024_population_65_plus %>%
+      slice_sample(
+        n = n_ba_2024_65_plus
+      )
+  ) %>%
+
+  arrange(
+    person_id
+  ) %>%
+
+  mutate(
+    true_qualification_group =
+      ba_group_from_level(
+        true_attainment_level
+      ),
+
+    observed_qualification_group =
+      true_qualification_group
+  )
+
+
+n_ba_2024_base <-
+  nrow(
+    ba_2024_working
+  )
+
+if (
+  any(
+    is.na(
+      ba_2024_working$
+        true_qualification_group
+    )
+  )
+) {
+  stop(
+    "Unable to map a true attainment level to a BA-like group.",
+    call. = FALSE
+  )
+}
+
+
+n_ba_measurement_error <-
+  floor(
+    n_ba_2024_base *
+      ba_2024_measurement_error_rate
+  )
+
+n_ba_missing_qualification <-
+  floor(
+    n_ba_2024_base *
+      ba_2024_missing_qualification_rate
+  )
+
+n_ba_unknown_code <-
+  floor(
+    n_ba_2024_base *
+      ba_2024_unknown_code_rate
+  )
+
+n_ba_invalid_year <-
+  floor(
+    n_ba_2024_base *
+      ba_2024_invalid_year_rate
+  )
+
+n_ba_missing_person_id <-
+  floor(
+    n_ba_2024_base *
+      ba_2024_missing_person_id_rate
+  )
+
+n_ba_duplicate_records <-
+  floor(
+    n_ba_2024_base *
+      ba_2024_duplicate_rate
+  )
+
+
+ba_available_indices <-
+  seq_len(
+    n_ba_2024_base
+  )
+
+
+ba_measurement_error_indices <-
+  sample(
+    ba_available_indices,
+    size = n_ba_measurement_error
+  )
+
+ba_available_indices <-
+  setdiff(
+    ba_available_indices,
+    ba_measurement_error_indices
+  )
+
+
+ba_missing_qualification_indices <-
+  sample(
+    ba_available_indices,
+    size = n_ba_missing_qualification
+  )
+
+ba_available_indices <-
+  setdiff(
+    ba_available_indices,
+    ba_missing_qualification_indices
+  )
+
+
+ba_unknown_code_indices <-
+  sample(
+    ba_available_indices,
+    size = n_ba_unknown_code
+  )
+
+ba_available_indices <-
+  setdiff(
+    ba_available_indices,
+    ba_unknown_code_indices
+  )
+
+
+ba_invalid_year_indices <-
+  sample(
+    ba_available_indices,
+    size = n_ba_invalid_year
+  )
+
+ba_available_indices <-
+  setdiff(
+    ba_available_indices,
+    ba_invalid_year_indices
+  )
+
+
+ba_missing_person_id_indices <-
+  sample(
+    ba_available_indices,
+    size = n_ba_missing_person_id
+  )
+
+ba_available_indices <-
+  setdiff(
+    ba_available_indices,
+    ba_missing_person_id_indices
+  )
+
+
+ba_duplicate_indices <-
+  sample(
+    ba_available_indices,
+    size = n_ba_duplicate_records
+  )
+
+
+for (index in ba_measurement_error_indices) {
+
+  ba_2024_working$
+    observed_qualification_group[index] <-
+    sample_alternative_ba_group(
+      true_group =
+        ba_2024_working$
+          true_qualification_group[index],
+      age_value =
+        ba_2024_working$
+          age_at_reference_year[index]
+    )
+}
+
+
+realised_ba_measurement_errors <-
+  sum(
+    ba_2024_working$
+      observed_qualification_group !=
+      ba_2024_working$
+        true_qualification_group
+  )
+
+if (
+  realised_ba_measurement_errors !=
+    n_ba_measurement_error
+) {
+  stop(
+    "Unexpected number of realised BA-like measurement errors.",
+    call. = FALSE
+  )
+}
+
+
+ba_2024_delivery <-
+  ba_2024_working %>%
+
+  transmute(
+    person_id,
+    reporting_year = 2024L,
+    qualification_group =
+      observed_qualification_group
+  )
+
+
+ba_2024_delivery$
+  qualification_group[
+    ba_missing_qualification_indices
+  ] <- NA_character_
+
+ba_2024_delivery$
+  qualification_group[
+    ba_unknown_code_indices
+  ] <- "UNMAPPED_GROUP"
+
+ba_2024_delivery$
+  reporting_year[
+    ba_invalid_year_indices
+  ] <- 2023L
+
+ba_2024_delivery$
+  person_id[
+    ba_missing_person_id_indices
+  ] <- NA_character_
+
+
+ba_2024_duplicates <-
+  ba_2024_delivery[
+    ba_duplicate_indices,
+    ,
+    drop = FALSE
+  ]
+
+
+ba_2024_delivery <-
+  bind_rows(
+    ba_2024_delivery,
+    ba_2024_duplicates
+  )
+
+
+# ---------------------------------------------------------------------
+# 13. Validate and write BA-like 2024 delivery
+# ---------------------------------------------------------------------
+
+expected_ba_rows <-
+  n_ba_2024_base +
+  n_ba_duplicate_records
+
+if (
+  nrow(ba_2024_delivery) !=
+    expected_ba_rows
+) {
+  stop(
+    "Unexpected number of BA-like delivery rows.",
+    call. = FALSE
+  )
+}
+
+if (
+  sum(
+    is.na(
+      ba_2024_delivery$
+        person_id
+    )
+  ) !=
+    n_ba_missing_person_id
+) {
+  stop(
+    "Unexpected number of missing BA-like person_id values.",
+    call. = FALSE
+  )
+}
+
+if (
+  sum(
+    is.na(
+      ba_2024_delivery$
+        qualification_group
+    )
+  ) !=
+    n_ba_missing_qualification
+) {
+  stop(
+    "Unexpected number of missing BA-like qualification groups.",
+    call. = FALSE
+  )
+}
+
+if (
+  sum(
+    ba_2024_delivery$
+      qualification_group ==
+      "UNMAPPED_GROUP",
+    na.rm = TRUE
+  ) !=
+    n_ba_unknown_code
+) {
+  stop(
+    "Unexpected number of unknown BA-like qualification groups.",
+    call. = FALSE
+  )
+}
+
+if (
+  sum(
+    ba_2024_delivery$
+      reporting_year != 2024L
+  ) !=
+    n_ba_invalid_year
+) {
+  stop(
+    "Unexpected number of invalid BA-like reporting years.",
+    call. = FALSE
+  )
+}
+
+
+ba_duplicate_keys <-
+  ba_2024_delivery %>%
+
+  filter(
+    !is.na(person_id)
+  ) %>%
+
+  count(
+    person_id,
+    reporting_year
+  ) %>%
+
+  filter(
+    n > 1L
+  )
+
+if (
+  nrow(ba_duplicate_keys) !=
+    n_ba_duplicate_records
+) {
+  stop(
+    paste(
+      "Unexpected number of duplicated",
+      "BA-like person-year keys."
+    ),
+    call. = FALSE
+  )
+}
+
+
+if (
+  ba_2024_delivery %>%
+
+    filter(
+      !is.na(person_id)
+    ) %>%
+
+    anti_join(
+      education_truth_2024 %>%
+        select(
+          person_id
+        ),
+      by = "person_id"
+    ) %>%
+
+    nrow() >
+    0L
+) {
+  stop(
+    "BA-like delivery contains persons outside the 2024 education truth.",
+    call. = FALSE
+  )
+}
+
+
+write_csv(
+  ba_2024_delivery,
+  file.path(
+    education_raw_dir,
+    "ba_2024_like_delivery.csv"
+  ),
+  na = ""
+)
+
+
+message(
+  "BA-like 2024 delivery generated successfully."
+)
+
+message(
+  "Age 15-17 source records: ",
+  n_ba_2024_15_17
+)
+
+message(
+  "Age 18-64 source records: ",
+  n_ba_2024_18_64
+)
+
+message(
+  "Age 65+ source records: ",
+  n_ba_2024_65_plus
+)
+
+message(
+  "Base source records: ",
+  n_ba_2024_base
+)
+
+message(
+  "Measurement errors: ",
+  n_ba_measurement_error
+)
+
+message(
+  "Missing qualifications: ",
+  n_ba_missing_qualification
+)
+
+message(
+  "Unknown groups: ",
+  n_ba_unknown_code
+)
+
+message(
+  "Invalid reporting years: ",
+  n_ba_invalid_year
+)
+
+message(
+  "Missing person IDs: ",
+  n_ba_missing_person_id
+)
+
+message(
+  "Duplicate records added: ",
+  n_ba_duplicate_records
+)
+
+message(
+  "Raw delivery rows: ",
+  nrow(
+    ba_2024_delivery
+  )
+)
