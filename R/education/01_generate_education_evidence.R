@@ -632,3 +632,470 @@ message(
   "True upward progressions 2022-2024: ",
   n_true_progressions
 )
+
+
+# ---------------------------------------------------------------------
+# 8. Define Zensus-like 2022 delivery parameters
+# ---------------------------------------------------------------------
+# The source coverage and error rates are illustrative simulation
+# parameters. They are not estimates of actual administrative or
+# statistical data quality.
+
+zensus_2022_seed <- 20221L
+
+zensus_2022_coverage <- 0.20
+
+zensus_2022_measurement_error_rate <- 0.015
+zensus_2022_missing_qualification_rate <- 0.010
+zensus_2022_unknown_code_rate <- 0.004
+zensus_2022_invalid_year_rate <- 0.002
+zensus_2022_missing_person_id_rate <- 0.002
+zensus_2022_duplicate_rate <- 0.005
+
+zensus_2022_codes <- c(
+  "NONE_LOW",
+  "SCHOOL",
+  "VOC_POSTSEC",
+  "BACHELOR_EQ",
+  "MASTER_EQ",
+  "DOCTORATE"
+)
+
+
+# ---------------------------------------------------------------------
+# 9. Generate Zensus-like 2022 source evidence
+# ---------------------------------------------------------------------
+
+set.seed(
+  zensus_2022_seed
+)
+
+n_zensus_2022_base <-
+  floor(
+    nrow(education_truth_2022) *
+      zensus_2022_coverage
+  )
+
+
+zensus_2022_working <-
+  education_truth_2022 %>%
+
+  slice_sample(
+    n = n_zensus_2022_base
+  ) %>%
+
+  mutate(
+    observed_attainment_level =
+      true_attainment_level
+  )
+
+
+sample_alternative_attainment <- function(
+  true_level,
+  age_value
+) {
+
+  allowed_levels <-
+    which(
+      age_value >=
+        minimum_age_by_level
+    )
+
+  candidate_levels <-
+    allowed_levels[
+      allowed_levels !=
+        true_level
+    ]
+
+  if (length(candidate_levels) == 0L) {
+    stop(
+      "No alternative attainment level available.",
+      call. = FALSE
+    )
+  }
+
+  distance_from_truth <-
+    abs(
+      candidate_levels -
+        true_level
+    )
+
+  nearest_candidates <-
+    candidate_levels[
+      distance_from_truth ==
+        min(distance_from_truth)
+    ]
+
+  nearest_candidates[
+    sample.int(
+      length(nearest_candidates),
+      size = 1L
+    )
+  ]
+}
+
+
+n_measurement_error <-
+  floor(
+    n_zensus_2022_base *
+      zensus_2022_measurement_error_rate
+  )
+
+n_missing_qualification <-
+  floor(
+    n_zensus_2022_base *
+      zensus_2022_missing_qualification_rate
+  )
+
+n_unknown_code <-
+  floor(
+    n_zensus_2022_base *
+      zensus_2022_unknown_code_rate
+  )
+
+n_invalid_year <-
+  floor(
+    n_zensus_2022_base *
+      zensus_2022_invalid_year_rate
+  )
+
+n_missing_person_id <-
+  floor(
+    n_zensus_2022_base *
+      zensus_2022_missing_person_id_rate
+  )
+
+n_duplicate_records <-
+  floor(
+    n_zensus_2022_base *
+      zensus_2022_duplicate_rate
+  )
+
+
+available_indices <-
+  seq_len(
+    n_zensus_2022_base
+  )
+
+
+measurement_error_indices <-
+  sample(
+    available_indices,
+    size = n_measurement_error
+  )
+
+available_indices <-
+  setdiff(
+    available_indices,
+    measurement_error_indices
+  )
+
+
+missing_qualification_indices <-
+  sample(
+    available_indices,
+    size = n_missing_qualification
+  )
+
+available_indices <-
+  setdiff(
+    available_indices,
+    missing_qualification_indices
+  )
+
+
+unknown_code_indices <-
+  sample(
+    available_indices,
+    size = n_unknown_code
+  )
+
+available_indices <-
+  setdiff(
+    available_indices,
+    unknown_code_indices
+  )
+
+
+invalid_year_indices <-
+  sample(
+    available_indices,
+    size = n_invalid_year
+  )
+
+available_indices <-
+  setdiff(
+    available_indices,
+    invalid_year_indices
+  )
+
+
+missing_person_id_indices <-
+  sample(
+    available_indices,
+    size = n_missing_person_id
+  )
+
+available_indices <-
+  setdiff(
+    available_indices,
+    missing_person_id_indices
+  )
+
+
+duplicate_indices <-
+  sample(
+    available_indices,
+    size = n_duplicate_records
+  )
+
+
+for (index in measurement_error_indices) {
+
+  zensus_2022_working$
+    observed_attainment_level[index] <-
+    sample_alternative_attainment(
+      true_level =
+        zensus_2022_working$
+          true_attainment_level[index],
+      age_value =
+        zensus_2022_working$
+          age_at_reference_year[index]
+    )
+}
+
+
+realised_measurement_errors <-
+  sum(
+    zensus_2022_working$
+      observed_attainment_level !=
+      zensus_2022_working$
+        true_attainment_level
+  )
+
+if (
+  realised_measurement_errors !=
+    n_measurement_error
+) {
+  stop(
+    "Unexpected number of realised Zensus-like measurement errors.",
+    call. = FALSE
+  )
+}
+
+
+zensus_2022_delivery <-
+  zensus_2022_working %>%
+
+  mutate(
+    highest_qualification =
+      zensus_2022_codes[
+        observed_attainment_level
+      ]
+  )
+
+
+zensus_2022_delivery$
+  highest_qualification[
+    missing_qualification_indices
+  ] <- NA_character_
+
+zensus_2022_delivery$
+  highest_qualification[
+    unknown_code_indices
+  ] <- "UNKNOWN_CODE"
+
+zensus_2022_delivery$
+  reference_year[
+    invalid_year_indices
+  ] <- 2021L
+
+zensus_2022_delivery$
+  person_id[
+    missing_person_id_indices
+  ] <- NA_character_
+
+
+zensus_2022_duplicates <-
+  zensus_2022_delivery[
+    duplicate_indices,
+    ,
+    drop = FALSE
+  ]
+
+
+zensus_2022_delivery <-
+  bind_rows(
+    zensus_2022_delivery,
+    zensus_2022_duplicates
+  ) %>%
+
+  select(
+    person_id,
+    reference_year,
+    highest_qualification
+  )
+
+
+# ---------------------------------------------------------------------
+# 10. Validate and write Zensus-like 2022 delivery
+# ---------------------------------------------------------------------
+
+expected_zensus_rows <-
+  n_zensus_2022_base +
+  n_duplicate_records
+
+if (
+  nrow(zensus_2022_delivery) !=
+    expected_zensus_rows
+) {
+  stop(
+    "Unexpected number of Zensus-like delivery rows.",
+    call. = FALSE
+  )
+}
+
+if (
+  sum(
+    is.na(
+      zensus_2022_delivery$
+        person_id
+    )
+  ) !=
+    n_missing_person_id
+) {
+  stop(
+    "Unexpected number of missing person_id values.",
+    call. = FALSE
+  )
+}
+
+if (
+  sum(
+    is.na(
+      zensus_2022_delivery$
+        highest_qualification
+    )
+  ) !=
+    n_missing_qualification
+) {
+  stop(
+    "Unexpected number of missing qualification values.",
+    call. = FALSE
+  )
+}
+
+if (
+  sum(
+    zensus_2022_delivery$
+      highest_qualification ==
+      "UNKNOWN_CODE",
+    na.rm = TRUE
+  ) !=
+    n_unknown_code
+) {
+  stop(
+    "Unexpected number of unknown qualification codes.",
+    call. = FALSE
+  )
+}
+
+if (
+  sum(
+    zensus_2022_delivery$
+      reference_year != 2022L
+  ) !=
+    n_invalid_year
+) {
+  stop(
+    "Unexpected number of invalid reference years.",
+    call. = FALSE
+  )
+}
+
+
+zensus_duplicate_keys <-
+  zensus_2022_delivery %>%
+
+  filter(
+    !is.na(person_id)
+  ) %>%
+
+  count(
+    person_id,
+    reference_year
+  ) %>%
+
+  filter(
+    n > 1L
+  )
+
+if (
+  nrow(zensus_duplicate_keys) !=
+    n_duplicate_records
+) {
+  stop(
+    paste(
+      "Unexpected number of duplicated",
+      "Zensus-like person-year keys."
+    ),
+    call. = FALSE
+  )
+}
+
+
+write_csv(
+  zensus_2022_delivery,
+  file.path(
+    education_raw_dir,
+    "zensus_2022_like_delivery.csv"
+  ),
+  na = ""
+)
+
+
+message(
+  "Zensus-like 2022 delivery generated successfully."
+)
+
+message(
+  "Base source records: ",
+  n_zensus_2022_base
+)
+
+message(
+  "Measurement errors: ",
+  n_measurement_error
+)
+
+message(
+  "Missing qualifications: ",
+  n_missing_qualification
+)
+
+message(
+  "Unknown codes: ",
+  n_unknown_code
+)
+
+message(
+  "Invalid reference years: ",
+  n_invalid_year
+)
+
+message(
+  "Missing person IDs: ",
+  n_missing_person_id
+)
+
+message(
+  "Duplicate records added: ",
+  n_duplicate_records
+)
+
+message(
+  "Raw delivery rows: ",
+  nrow(
+    zensus_2022_delivery
+  )
+)
