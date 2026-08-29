@@ -1,0 +1,4 @@
+attainment_status,persons,persons_with_range,range_agreement_persons,exact_state_persons,exact_match_persons,mean_range_width,range_coverage_rate,range_agreement_rate,exact_state_agreement_rate
+accepted,23347,23347,22359,11083,10244,0.693836467212062,1,0.9576819291557802,0.9242984751421095
+review_required,64,53,33,53,33,0,0.828125,0.6226415094339622,0.6226415094339622
+not_reported,17362,0,0,0,0,,0,,

@@ -1,0 +1,9 @@
+attainment_status,decision_reason,persons,persons_with_range,range_agreement_persons,exact_state_persons,exact_match_persons,mean_range_width,range_coverage_rate,range_agreement_rate,exact_state_agreement_rate
+accepted,initial_observation,15644,15644,15389,3556,3438,1.017067246228586,1,0.9836998210176425,0.9668166479190101
+accepted,carry_forward,4034,4034,3575,4034,3575,0,1,0.8862171541893902,0.8862171541893902
+accepted,compatible_retained,3423,3423,3165,3423,3165,0,1,0.9246275197195443,0.9246275197195443
+accepted,upward_progression,246,246,230,70,66,1.1707317073170733,1,0.9349593495934959,0.9428571428571428
+review_required,temporal_regression,48,48,30,48,30,0,1,0.625,0.625
+review_required,same_year_conflict,11,0,0,0,0,,0,,
+review_required,same_year_conflict_retained_prior,5,5,3,5,3,0,1,0.6,0.6
+not_reported,no_usable_evidence,17362,0,0,0,0,,0,,
