@@ -71,3 +71,98 @@ attainment_ranges_overlap <- function(
   max(level_min_a, level_min_b) <=
     min(level_max_a, level_max_b)
 }
+
+
+# ---------------------------------------------------------------------
+# Narrow two compatible ranges to their common information
+# ---------------------------------------------------------------------
+
+intersect_attainment_ranges <- function(
+  level_min_a,
+  level_max_a,
+  level_min_b,
+  level_max_b
+) {
+
+  if (
+    !attainment_ranges_overlap(
+      level_min_a,
+      level_max_a,
+      level_min_b,
+      level_max_b
+    )
+  ) {
+    stop(
+      "Cannot intersect incompatible attainment ranges.",
+      call. = FALSE
+    )
+  }
+
+  c(
+    level_min = max(level_min_a, level_min_b),
+    level_max = min(level_max_a, level_max_b)
+  )
+}
+
+
+# ---------------------------------------------------------------------
+# Classify the relationship between two attainment observations
+# ---------------------------------------------------------------------
+
+classify_attainment_relation <- function(
+  previous_min,
+  previous_max,
+  new_min,
+  new_max,
+  same_reference_year = FALSE
+) {
+
+  assert_valid_attainment_range(
+    previous_min,
+    previous_max
+  )
+
+  assert_valid_attainment_range(
+    new_min,
+    new_max
+  )
+
+  if (
+    length(same_reference_year) != 1L ||
+    is.na(same_reference_year) ||
+    !is.logical(same_reference_year)
+  ) {
+    stop(
+      "same_reference_year must be TRUE or FALSE.",
+      call. = FALSE
+    )
+  }
+
+  if (
+    attainment_ranges_overlap(
+      previous_min,
+      previous_max,
+      new_min,
+      new_max
+    )
+  ) {
+    return("compatible")
+  }
+
+  if (same_reference_year) {
+    return("same_year_conflict")
+  }
+
+  if (new_min > previous_max) {
+    return("upward_progression")
+  }
+
+  if (new_max < previous_min) {
+    return("temporal_regression")
+  }
+
+  stop(
+    "Unable to classify attainment relationship.",
+    call. = FALSE
+  )
+}

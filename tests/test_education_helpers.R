@@ -46,4 +46,96 @@ stopifnot(
 )
 
 
+# Broad evidence can be narrowed by more precise evidence
+narrowed_range <- intersect_attainment_ranges(
+  4,
+  6,
+  5,
+  5
+)
+
+stopifnot(
+  identical(
+    unname(narrowed_range),
+    c(5, 5)
+  )
+)
+
+
+# Incompatible ranges cannot be intersected
+invalid_intersection <- try(
+  intersect_attainment_ranges(
+    5,
+    5,
+    3,
+    3
+  ),
+  silent = TRUE
+)
+
+stopifnot(
+  inherits(invalid_intersection, "try-error")
+)
+
+
+# Bachelor followed by Master is upward progression
+stopifnot(
+  identical(
+    classify_attainment_relation(
+      4,
+      4,
+      5,
+      5,
+      same_reference_year = FALSE
+    ),
+    "upward_progression"
+  )
+)
+
+
+# Master followed by Bachelor is temporal regression
+stopifnot(
+  identical(
+    classify_attainment_relation(
+      5,
+      5,
+      4,
+      4,
+      same_reference_year = FALSE
+    ),
+    "temporal_regression"
+  )
+)
+
+
+# Same-year incompatible evidence requires review
+stopifnot(
+  identical(
+    classify_attainment_relation(
+      4,
+      4,
+      3,
+      3,
+      same_reference_year = TRUE
+    ),
+    "same_year_conflict"
+  )
+)
+
+
+# Broad and precise evidence can remain compatible
+stopifnot(
+  identical(
+    classify_attainment_relation(
+      4,
+      6,
+      5,
+      5,
+      same_reference_year = TRUE
+    ),
+    "compatible"
+  )
+)
+
+
 message("Education helper tests passed successfully.")
