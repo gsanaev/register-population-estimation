@@ -1,0 +1,5 @@
+population_scope,persons,total_observed_persons,share_of_observed_persons
+eligible_2024_age_15_plus,43004,52253,0.8229958088530802
+below_age_threshold,8369,52253,0.16016305283907145
+unknown_age,820,52253,0.015692878877767782
+not_fallback_resident,60,52253,0.0011482594300805695
