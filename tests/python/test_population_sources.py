@@ -7,6 +7,7 @@ import yaml
 from simulation.population_sources import (
     generate_employment_register,
     generate_population_register,
+    generate_tax_register,
 )
 from simulation.world import (
     age_group_from_age,
@@ -787,6 +788,312 @@ def test_employment_generation_is_reproducible() -> None:
         config,
         np.random.default_rng(20265),
         np.random.default_rng(202651),
+    )
+
+    pd.testing.assert_frame_equal(
+        first,
+        second,
+    )
+
+
+def test_tax_register_schema_and_uniqueness() -> None:
+    (
+        config,
+        _,
+        addresses,
+        population_truth,
+    ) = build_population_inputs()
+
+    tax = generate_tax_register(
+        population_truth,
+        addresses,
+        config,
+        np.random.default_rng(20266),
+        np.random.default_rng(202661),
+    )
+
+    assert list(tax.columns) == [
+        "person_id",
+        "tax_year",
+        "tax_filing_flag",
+        "taxable_income",
+        "contact_address_id",
+    ]
+
+    assert tax["person_id"].is_unique
+
+    assert set(tax["person_id"]).issubset(
+        set(population_truth["person_id"])
+    )
+
+    assert set(
+        tax["tax_filing_flag"]
+    ).issubset(
+        {
+            0,
+            1,
+        }
+    )
+
+    assert (
+        tax["tax_year"] == 2025
+    ).all()
+
+
+def test_tax_source_presence_differs_from_filing_signal() -> None:
+    (
+        config,
+        _,
+        addresses,
+        population_truth,
+    ) = build_population_inputs()
+
+    tax = generate_tax_register(
+        population_truth,
+        addresses,
+        config,
+        np.random.default_rng(20266),
+        np.random.default_rng(202661),
+    )
+
+    filers = tax[
+        "tax_filing_flag"
+    ].eq(1)
+
+    nonfilers = ~filers
+
+    assert filers.any()
+    assert nonfilers.any()
+
+    nonfiler_income = tax.loc[
+        nonfilers,
+        "taxable_income",
+    ].dropna()
+
+    assert (
+        nonfiler_income <= 0
+    ).all()
+
+
+def test_tax_filing_rates_are_plausible() -> None:
+    (
+        config,
+        _,
+        addresses,
+        population_truth,
+    ) = build_population_inputs()
+
+    tax = generate_tax_register(
+        population_truth,
+        addresses,
+        config,
+        np.random.default_rng(20266),
+        np.random.default_rng(202661),
+    )
+
+    filer_ids = set(
+        tax.loc[
+            tax[
+                "tax_filing_flag"
+            ].eq(1),
+            "person_id",
+        ]
+    )
+
+    truth = population_truth.copy()
+
+    truth["filer"] = truth[
+        "person_id"
+    ].isin(filer_ids)
+
+    groups = {
+        "resident_18_24": (
+            (truth["true_resident"] == 1)
+            & truth["age"].between(18, 24)
+        ),
+        "resident_25_39": (
+            (truth["true_resident"] == 1)
+            & truth["age"].between(25, 39)
+        ),
+        "resident_40_64": (
+            (truth["true_resident"] == 1)
+            & truth["age"].between(40, 64)
+        ),
+        "resident_65_79": (
+            (truth["true_resident"] == 1)
+            & truth["age"].between(65, 79)
+        ),
+        "resident_80_plus": (
+            (truth["true_resident"] == 1)
+            & truth["age"].ge(80)
+        ),
+        "nonresident": (
+            truth["true_resident"] == 0
+        ),
+    }
+
+    expected = {
+        "resident_18_24": 0.22,
+        "resident_25_39": 0.62,
+        "resident_40_64": 0.68,
+        "resident_65_79": 0.28,
+        "resident_80_plus": 0.12,
+        "nonresident": 0.04,
+    }
+
+    tolerance = {
+        "resident_18_24": 0.03,
+        "resident_25_39": 0.02,
+        "resident_40_64": 0.02,
+        "resident_65_79": 0.025,
+        "resident_80_plus": 0.035,
+        "nonresident": 0.02,
+    }
+
+    for name, mask in groups.items():
+        realised = truth.loc[
+            mask,
+            "filer",
+        ].mean()
+
+        assert abs(
+            realised
+            - expected[name]
+        ) < tolerance[name]
+
+
+def test_tax_income_imperfections_are_plausible() -> None:
+    (
+        config,
+        _,
+        addresses,
+        population_truth,
+    ) = build_population_inputs()
+
+    tax = generate_tax_register(
+        population_truth,
+        addresses,
+        config,
+        np.random.default_rng(20266),
+        np.random.default_rng(202661),
+    )
+
+    missing_share = (
+        tax[
+            "taxable_income"
+        ].isna().mean()
+    )
+
+    assert abs(
+        missing_share - 0.01
+    ) < 0.003
+
+    nonmissing_income = tax[
+        "taxable_income"
+    ].dropna()
+
+    negative_share = (
+        nonmissing_income < 0
+    ).mean()
+
+    assert abs(
+        negative_share - 0.005
+    ) < 0.002
+
+    checked = tax.merge(
+        population_truth[
+            [
+                "person_id",
+                "age",
+            ]
+        ],
+        on="person_id",
+        how="left",
+        validate="one_to_one",
+    )
+
+    adult_filers = checked.loc[
+        checked[
+            "tax_filing_flag"
+        ].eq(1)
+        & checked["age"].ge(18),
+        "taxable_income",
+    ].dropna()
+
+    under_18_filers = checked.loc[
+        checked[
+            "tax_filing_flag"
+        ].eq(1)
+        & checked["age"].lt(18),
+        "taxable_income",
+    ].dropna()
+
+    assert (
+        adult_filers != 0
+    ).all()
+
+    assert (
+        under_18_filers == 0
+    ).all()
+
+
+def test_tax_contact_addresses_are_valid() -> None:
+    (
+        config,
+        _,
+        addresses,
+        population_truth,
+    ) = build_population_inputs()
+
+    tax = generate_tax_register(
+        population_truth,
+        addresses,
+        config,
+        np.random.default_rng(20266),
+        np.random.default_rng(202661),
+    )
+
+    valid_addresses = set(
+        addresses["address_id"]
+    )
+
+    assert set(
+        tax[
+            "contact_address_id"
+        ].dropna()
+    ).issubset(valid_addresses)
+
+    missing_share = tax[
+        "contact_address_id"
+    ].isna().mean()
+
+    assert abs(
+        missing_share - 0.03
+    ) < 0.006
+
+
+def test_tax_generation_is_reproducible() -> None:
+    (
+        config,
+        _,
+        addresses,
+        population_truth,
+    ) = build_population_inputs()
+
+    first = generate_tax_register(
+        population_truth,
+        addresses,
+        config,
+        np.random.default_rng(20266),
+        np.random.default_rng(202661),
+    )
+
+    second = generate_tax_register(
+        population_truth,
+        addresses,
+        config,
+        np.random.default_rng(20266),
+        np.random.default_rng(202661),
     )
 
     pd.testing.assert_frame_equal(

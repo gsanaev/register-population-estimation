@@ -45,6 +45,15 @@ EMPLOYMENT_REGISTER_COLUMNS = [
     "contact_address_id",
 ]
 
+
+TAX_REGISTER_COLUMNS = [
+    "person_id",
+    "tax_year",
+    "tax_filing_flag",
+    "taxable_income",
+    "contact_address_id",
+]
+
 POPULATION_TRUTH_REQUIRED_COLUMNS = {
     "person_id",
     "true_resident",
@@ -1160,4 +1169,361 @@ def generate_employment_register(
 
     return employment_register[
         EMPLOYMENT_REGISTER_COLUMNS
+    ]
+
+
+def generate_tax_register(
+    population_truth: pd.DataFrame,
+    address_register: pd.DataFrame,
+    config: Mapping[str, Any],
+    rng: np.random.Generator,
+    contact_rng: np.random.Generator,
+) -> pd.DataFrame:
+    """Generate an imperfect synthetic tax-register delivery."""
+
+    required_columns = (
+        POPULATION_TRUTH_REQUIRED_COLUMNS
+        | {
+            "age",
+        }
+    )
+
+    missing_columns = (
+        required_columns
+        - set(population_truth.columns)
+    )
+
+    if missing_columns:
+        raise ValueError(
+            "Population truth is missing tax fields: "
+            + ", ".join(sorted(missing_columns))
+        )
+
+    if population_truth["person_id"].duplicated().any():
+        raise ValueError(
+            "Population truth contains duplicated person IDs."
+        )
+
+    tax_config = config.get("tax")
+
+    if not isinstance(tax_config, Mapping):
+        raise ValueError(
+            "Configuration must contain a tax section."
+        )
+
+    tax_year = tax_config.get("tax_year")
+
+    if not isinstance(tax_year, int):
+        raise ValueError(
+            "tax_year must be an integer."
+        )
+
+    filing_config = tax_config.get(
+        "filing_probabilities"
+    )
+
+    if not isinstance(filing_config, Mapping):
+        raise ValueError(
+            "tax must define filing_probabilities."
+        )
+
+    filing_probabilities = {
+        name: _validate_probability(
+            filing_config.get(name),
+            name,
+        )
+        for name in (
+            "nonresident",
+            "resident_18_24",
+            "resident_25_39",
+            "resident_40_64",
+            "resident_65_79",
+            "resident_80_plus",
+            "fallback",
+        )
+    }
+
+    income_config = tax_config.get(
+        "taxable_income"
+    )
+
+    if not isinstance(income_config, Mapping):
+        raise ValueError(
+            "tax must define taxable_income."
+        )
+
+    required_income_groups = (
+        "age_18_24",
+        "age_25_64",
+        "age_65_plus",
+    )
+
+    for group in required_income_groups:
+        parameters = income_config.get(group)
+
+        if not isinstance(parameters, Mapping):
+            raise ValueError(
+                f"Taxable-income parameters missing for {group}."
+            )
+
+        if (
+            "log_mean" not in parameters
+            or "log_sd" not in parameters
+        ):
+            raise ValueError(
+                f"Taxable-income parameters incomplete for {group}."
+            )
+
+    nonfiler_retention_probability = (
+        _validate_probability(
+            tax_config.get(
+                "nonfiler_retention_probability"
+            ),
+            "nonfiler_retention_probability",
+        )
+    )
+
+    missing_income_probability = (
+        _validate_probability(
+            tax_config.get(
+                "missing_income_probability"
+            ),
+            "tax missing_income_probability",
+        )
+    )
+
+    negative_income_probability = (
+        _validate_probability(
+            tax_config.get(
+                "negative_income_probability"
+            ),
+            "negative_income_probability",
+        )
+    )
+
+    ages = population_truth[
+        "age"
+    ].to_numpy(dtype=np.int64)
+
+    true_resident = population_truth[
+        "true_resident"
+    ].to_numpy(dtype=np.int64)
+
+    filing_probability = np.full(
+        len(population_truth),
+        filing_probabilities["fallback"],
+        dtype=float,
+    )
+
+    filing_probability[
+        true_resident == 0
+    ] = filing_probabilities[
+        "nonresident"
+    ]
+
+    resident = (
+        true_resident == 1
+    )
+
+    filing_probability[
+        resident
+        & (ages >= 18)
+        & (ages <= 24)
+    ] = filing_probabilities[
+        "resident_18_24"
+    ]
+
+    filing_probability[
+        resident
+        & (ages >= 25)
+        & (ages <= 39)
+    ] = filing_probabilities[
+        "resident_25_39"
+    ]
+
+    filing_probability[
+        resident
+        & (ages >= 40)
+        & (ages <= 64)
+    ] = filing_probabilities[
+        "resident_40_64"
+    ]
+
+    filing_probability[
+        resident
+        & (ages >= 65)
+        & (ages <= 79)
+    ] = filing_probabilities[
+        "resident_65_79"
+    ]
+
+    filing_probability[
+        resident
+        & (ages >= 80)
+    ] = filing_probabilities[
+        "resident_80_plus"
+    ]
+
+    filer = (
+        rng.random(
+            len(population_truth)
+        )
+        < filing_probability
+    )
+
+    taxable_income = np.zeros(
+        len(population_truth),
+        dtype=float,
+    )
+
+    income_groups = (
+        (
+            (ages >= 18)
+            & (ages <= 24),
+            "age_18_24",
+        ),
+        (
+            (ages >= 25)
+            & (ages <= 64),
+            "age_25_64",
+        ),
+        (
+            ages >= 65,
+            "age_65_plus",
+        ),
+    )
+
+    for age_mask, group in income_groups:
+        selected = (
+            filer
+            & age_mask
+        )
+
+        n_selected = int(
+            selected.sum()
+        )
+
+        if n_selected == 0:
+            continue
+
+        parameters = income_config[
+            group
+        ]
+
+        taxable_income[
+            selected
+        ] = np.round(
+            rng.lognormal(
+                mean=float(
+                    parameters[
+                        "log_mean"
+                    ]
+                ),
+                sigma=float(
+                    parameters[
+                        "log_sd"
+                    ]
+                ),
+                size=n_selected,
+            ),
+            2,
+        )
+
+    keep = (
+        filer
+        | (
+            rng.random(
+                len(population_truth)
+            )
+            < nonfiler_retention_probability
+        )
+    )
+
+    source_population = (
+        population_truth.loc[
+            keep
+        ]
+        .reset_index(drop=True)
+        .copy()
+    )
+
+    source_filing_flag = (
+        filer[
+            keep
+        ].astype(np.int64)
+    )
+
+    source_income = taxable_income[
+        keep
+    ].copy()
+
+    n_source_records = len(
+        source_population
+    )
+
+    income_missing = (
+        rng.random(
+            n_source_records
+        )
+        < missing_income_probability
+    )
+
+    source_income[
+        income_missing
+    ] = np.nan
+
+    negative_income = (
+        rng.random(
+            n_source_records
+        )
+        < negative_income_probability
+    )
+
+    source_income[
+        negative_income
+    ] = -np.abs(
+        source_income[
+            negative_income
+        ]
+    )
+
+    contact_address_id = (
+        generate_contact_addresses(
+            source_population,
+            address_register,
+            config,
+            contact_rng,
+        )
+    )
+
+    tax_register = pd.DataFrame(
+        {
+            "person_id":
+                source_population[
+                    "person_id"
+                ].to_numpy(dtype=object),
+            "tax_year":
+                np.full(
+                    n_source_records,
+                    tax_year,
+                    dtype=np.int64,
+                ),
+            "tax_filing_flag":
+                source_filing_flag,
+            "taxable_income":
+                source_income,
+            "contact_address_id":
+                contact_address_id,
+        }
+    )
+
+    if tax_register[
+        "person_id"
+    ].duplicated().any():
+        raise RuntimeError(
+            "Tax register contains duplicated person IDs."
+        )
+
+    return tax_register[
+        TAX_REGISTER_COLUMNS
     ]
