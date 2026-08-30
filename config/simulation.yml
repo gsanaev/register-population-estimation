@@ -393,6 +393,25 @@ education:
 
   ba_2024:
     seed: 20241
+    reporting_year: 2024
+    invalid_reporting_year: 2023
+
+    coverage:
+      age_15_17: 0.10
+      age_18_64: 0.55
+      age_65_plus: 0.15
+
+    measurement_error_rate: 0.015
+    missing_qualification_rate: 0.010
+    unknown_code_rate: 0.004
+    invalid_year_rate: 0.002
+    missing_person_id_rate: 0.002
+    duplicate_rate: 0.005
+
+    qualification_groups:
+      - "LOW_NONE"
+      - "SCHOOL_VOC"
+      - "HIGHER_ED"
 
   mikrozensus_2024:
     seed: 20242

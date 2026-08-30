@@ -13,6 +13,19 @@ ZENSUS_2022_COLUMNS = [
     "highest_qualification",
 ]
 
+
+BA_2024_COLUMNS = [
+    "person_id",
+    "reporting_year",
+    "qualification_group",
+]
+
+BA_QUALIFICATION_GROUPS = (
+    "LOW_NONE",
+    "SCHOOL_VOC",
+    "HIGHER_ED",
+)
+
 ZENSUS_TRUTH_REQUIRED_COLUMNS = {
     "person_id",
     "reference_year",
@@ -683,4 +696,674 @@ def generate_zensus_2022_delivery(
 
     return delivery[
         ZENSUS_2022_COLUMNS
+    ]
+
+
+def _ba_group_from_level(
+    levels: np.ndarray,
+) -> np.ndarray:
+    """Map six attainment levels to three broad BA-like groups."""
+
+    level_values = np.asarray(
+        levels,
+        dtype=np.int64,
+    )
+
+    if level_values.ndim != 1:
+        raise ValueError(
+            "BA attainment levels must be one-dimensional."
+        )
+
+    if (
+        np.any(level_values < 1)
+        or np.any(level_values > 6)
+    ):
+        raise ValueError(
+            "BA attainment levels must be between 1 and 6."
+        )
+
+    groups = np.empty(
+        len(level_values),
+        dtype=object,
+    )
+
+    groups[
+        level_values == 1
+    ] = "LOW_NONE"
+
+    groups[
+        (level_values >= 2)
+        & (level_values <= 3)
+    ] = "SCHOOL_VOC"
+
+    groups[
+        level_values >= 4
+    ] = "HIGHER_ED"
+
+    return groups
+
+
+def _sample_alternative_ba_group(
+    true_group: str,
+    age_value: int,
+    rng: np.random.Generator,
+) -> str:
+    """Sample the nearest age-plausible alternative BA-like group."""
+
+    if true_group not in BA_QUALIFICATION_GROUPS:
+        raise ValueError(
+            "Invalid true BA-like qualification group."
+        )
+
+    allowed_groups = [
+        "LOW_NONE",
+        "SCHOOL_VOC",
+    ]
+
+    if age_value >= 20:
+        allowed_groups.append(
+            "HIGHER_ED"
+        )
+
+    true_index = (
+        BA_QUALIFICATION_GROUPS.index(
+            true_group
+        )
+    )
+
+    candidate_indices = np.asarray(
+        [
+            BA_QUALIFICATION_GROUPS.index(
+                group
+            )
+            for group in allowed_groups
+            if group != true_group
+        ],
+        dtype=np.int64,
+    )
+
+    if len(candidate_indices) == 0:
+        raise ValueError(
+            "No alternative BA-like qualification group available."
+        )
+
+    distances = np.abs(
+        candidate_indices
+        - true_index
+    )
+
+    nearest_indices = (
+        candidate_indices[
+            distances
+            == distances.min()
+        ]
+    )
+
+    selected_index = int(
+        rng.choice(
+            nearest_indices
+        )
+    )
+
+    return BA_QUALIFICATION_GROUPS[
+        selected_index
+    ]
+
+
+def generate_ba_2024_delivery(
+    education_truth: pd.DataFrame,
+    config: Mapping[str, Any],
+    rng: np.random.Generator,
+) -> pd.DataFrame:
+    """Generate the coarse synthetic BA-like 2024 delivery."""
+
+    missing_columns = (
+        ZENSUS_TRUTH_REQUIRED_COLUMNS
+        - set(education_truth.columns)
+    )
+
+    if missing_columns:
+        raise ValueError(
+            "Education truth is missing BA fields: "
+            + ", ".join(
+                sorted(missing_columns)
+            )
+        )
+
+    if education_truth.duplicated(
+        subset=[
+            "person_id",
+            "reference_year",
+        ]
+    ).any():
+        raise ValueError(
+            "Education truth contains duplicated person-year records."
+        )
+
+    source_config = _get_source_config(
+        config,
+        "ba_2024",
+    )
+
+    reporting_year = source_config.get(
+        "reporting_year"
+    )
+
+    invalid_reporting_year = (
+        source_config.get(
+            "invalid_reporting_year"
+        )
+    )
+
+    if (
+        not isinstance(
+            reporting_year,
+            int,
+        )
+        or not isinstance(
+            invalid_reporting_year,
+            int,
+        )
+    ):
+        raise ValueError(
+            "BA reporting years must be integers."
+        )
+
+    coverage_config = source_config.get(
+        "coverage"
+    )
+
+    if not isinstance(
+        coverage_config,
+        Mapping,
+    ):
+        raise ValueError(
+            "ba_2024 must define coverage."
+        )
+
+    coverage = {
+        name: _validate_probability(
+            coverage_config.get(name),
+            f"BA {name} coverage",
+        )
+        for name in (
+            "age_15_17",
+            "age_18_64",
+            "age_65_plus",
+        )
+    }
+
+    rates = {
+        "measurement_error":
+            _validate_probability(
+                source_config.get(
+                    "measurement_error_rate"
+                ),
+                "BA measurement_error_rate",
+            ),
+        "missing_qualification":
+            _validate_probability(
+                source_config.get(
+                    "missing_qualification_rate"
+                ),
+                "BA missing_qualification_rate",
+            ),
+        "unknown_code":
+            _validate_probability(
+                source_config.get(
+                    "unknown_code_rate"
+                ),
+                "BA unknown_code_rate",
+            ),
+        "invalid_year":
+            _validate_probability(
+                source_config.get(
+                    "invalid_year_rate"
+                ),
+                "BA invalid_year_rate",
+            ),
+        "missing_person_id":
+            _validate_probability(
+                source_config.get(
+                    "missing_person_id_rate"
+                ),
+                "BA missing_person_id_rate",
+            ),
+        "duplicate_records":
+            _validate_probability(
+                source_config.get(
+                    "duplicate_rate"
+                ),
+                "BA duplicate_rate",
+            ),
+    }
+
+    configured_groups = tuple(
+        source_config.get(
+            "qualification_groups",
+            (),
+        )
+    )
+
+    if (
+        configured_groups
+        != BA_QUALIFICATION_GROUPS
+    ):
+        raise ValueError(
+            "BA qualification_groups must be "
+            "LOW_NONE, SCHOOL_VOC, HIGHER_ED."
+        )
+
+    truth_2024 = (
+        education_truth.loc[
+            education_truth[
+                "reference_year"
+            ].eq(reporting_year)
+        ]
+        .sort_values(
+            "person_id",
+            kind="mergesort",
+        )
+        .reset_index(drop=True)
+        .copy()
+    )
+
+    if truth_2024.empty:
+        raise ValueError(
+            "Education truth contains no BA reporting-year rows."
+        )
+
+    if truth_2024[
+        "person_id"
+    ].isna().any():
+        raise ValueError(
+            "BA truth contains missing person IDs."
+        )
+
+    if truth_2024[
+        "person_id"
+    ].duplicated().any():
+        raise ValueError(
+            "BA truth contains duplicated person IDs."
+        )
+
+    true_levels_all = truth_2024[
+        "true_attainment_level"
+    ].to_numpy(
+        dtype=np.int64
+    )
+
+    if (
+        np.any(true_levels_all < 1)
+        or np.any(true_levels_all > 6)
+    ):
+        raise ValueError(
+            "BA truth contains invalid attainment levels."
+        )
+
+    age_15_17 = (
+        truth_2024.loc[
+            truth_2024[
+                "age_at_reference_year"
+            ].between(
+                15,
+                17,
+            )
+        ]
+        .reset_index(drop=True)
+    )
+
+    age_18_64 = (
+        truth_2024.loc[
+            truth_2024[
+                "age_at_reference_year"
+            ].between(
+                18,
+                64,
+            )
+        ]
+        .reset_index(drop=True)
+    )
+
+    age_65_plus = (
+        truth_2024.loc[
+            truth_2024[
+                "age_at_reference_year"
+            ].ge(65)
+        ]
+        .reset_index(drop=True)
+    )
+
+    strata = (
+        (
+            age_15_17,
+            coverage[
+                "age_15_17"
+            ],
+        ),
+        (
+            age_18_64,
+            coverage[
+                "age_18_64"
+            ],
+        ),
+        (
+            age_65_plus,
+            coverage[
+                "age_65_plus"
+            ],
+        ),
+    )
+
+    sampled_strata = []
+
+    for population, probability in strata:
+        n_sample = int(
+            np.floor(
+                len(population)
+                * probability
+            )
+        )
+
+        if n_sample == 0:
+            sampled = (
+                population.iloc[
+                    0:0
+                ].copy()
+            )
+        else:
+            positions = rng.choice(
+                len(population),
+                size=n_sample,
+                replace=False,
+            )
+
+            sampled = (
+                population.iloc[
+                    positions
+                ].copy()
+            )
+
+        sampled_strata.append(
+            sampled
+        )
+
+    working = (
+        pd.concat(
+            sampled_strata,
+            ignore_index=True,
+        )
+        .sort_values(
+            "person_id",
+            kind="mergesort",
+        )
+        .reset_index(drop=True)
+    )
+
+    n_base = len(
+        working
+    )
+
+    if n_base <= 0:
+        raise ValueError(
+            "BA coverage produces no source records."
+        )
+
+    true_levels = working[
+        "true_attainment_level"
+    ].to_numpy(
+        dtype=np.int64
+    )
+
+    true_groups = (
+        _ba_group_from_level(
+            true_levels
+        )
+    )
+
+    observed_groups = (
+        true_groups.copy()
+    )
+
+    defect_counts = {
+        name: int(
+            np.floor(
+                n_base
+                * rate
+            )
+        )
+        for name, rate in rates.items()
+    }
+
+    defect_indices = (
+        _allocate_disjoint_indices(
+            n_base,
+            defect_counts,
+            rng,
+        )
+    )
+
+    ages = working[
+        "age_at_reference_year"
+    ].to_numpy(
+        dtype=np.int64
+    )
+
+    for position in defect_indices[
+        "measurement_error"
+    ]:
+        observed_groups[
+            position
+        ] = (
+            _sample_alternative_ba_group(
+                true_group=str(
+                    true_groups[
+                        position
+                    ]
+                ),
+                age_value=int(
+                    ages[
+                        position
+                    ]
+                ),
+                rng=rng,
+            )
+        )
+
+    realised_measurement_errors = int(
+        (
+            observed_groups
+            != true_groups
+        ).sum()
+    )
+
+    if (
+        realised_measurement_errors
+        != defect_counts[
+            "measurement_error"
+        ]
+    ):
+        raise RuntimeError(
+            "Unexpected number of realised "
+            "BA-like measurement errors."
+        )
+
+    delivery = pd.DataFrame(
+        {
+            "person_id":
+                working[
+                    "person_id"
+                ].to_numpy(
+                    dtype=object
+                ),
+            "reporting_year":
+                np.full(
+                    n_base,
+                    reporting_year,
+                    dtype=np.int64,
+                ),
+            "qualification_group":
+                observed_groups,
+        }
+    )
+
+    delivery.loc[
+        defect_indices[
+            "missing_qualification"
+        ],
+        "qualification_group",
+    ] = pd.NA
+
+    delivery.loc[
+        defect_indices[
+            "unknown_code"
+        ],
+        "qualification_group",
+    ] = "UNMAPPED_GROUP"
+
+    delivery.loc[
+        defect_indices[
+            "invalid_year"
+        ],
+        "reporting_year",
+    ] = invalid_reporting_year
+
+    delivery.loc[
+        defect_indices[
+            "missing_person_id"
+        ],
+        "person_id",
+    ] = pd.NA
+
+    duplicates = (
+        delivery.iloc[
+            defect_indices[
+                "duplicate_records"
+            ]
+        ]
+        .copy()
+    )
+
+    delivery = pd.concat(
+        [
+            delivery,
+            duplicates,
+        ],
+        ignore_index=True,
+    )
+
+    expected_rows = (
+        n_base
+        + defect_counts[
+            "duplicate_records"
+        ]
+    )
+
+    if len(delivery) != expected_rows:
+        raise RuntimeError(
+            "Unexpected number of BA-like delivery rows."
+        )
+
+    if int(
+        delivery[
+            "person_id"
+        ].isna().sum()
+    ) != defect_counts[
+        "missing_person_id"
+    ]:
+        raise RuntimeError(
+            "Unexpected number of missing BA person IDs."
+        )
+
+    if int(
+        delivery[
+            "qualification_group"
+        ].isna().sum()
+    ) != defect_counts[
+        "missing_qualification"
+    ]:
+        raise RuntimeError(
+            "Unexpected number of missing BA qualification groups."
+        )
+
+    if int(
+        delivery[
+            "qualification_group"
+        ].eq(
+            "UNMAPPED_GROUP"
+        ).sum()
+    ) != defect_counts[
+        "unknown_code"
+    ]:
+        raise RuntimeError(
+            "Unexpected number of unknown BA qualification groups."
+        )
+
+    if int(
+        delivery[
+            "reporting_year"
+        ].ne(
+            reporting_year
+        ).sum()
+    ) != defect_counts[
+        "invalid_year"
+    ]:
+        raise RuntimeError(
+            "Unexpected number of invalid BA reporting years."
+        )
+
+    duplicate_key_counts = (
+        delivery.loc[
+            delivery[
+                "person_id"
+            ].notna()
+        ]
+        .groupby(
+            [
+                "person_id",
+                "reporting_year",
+            ]
+        )
+        .size()
+    )
+
+    n_duplicate_keys = int(
+        (
+            duplicate_key_counts > 1
+        ).sum()
+    )
+
+    if (
+        n_duplicate_keys
+        != defect_counts[
+            "duplicate_records"
+        ]
+    ):
+        raise RuntimeError(
+            "Unexpected number of duplicated "
+            "BA person-year keys."
+        )
+
+    delivery_person_ids = set(
+        delivery[
+            "person_id"
+        ].dropna()
+    )
+
+    truth_person_ids = set(
+        truth_2024[
+            "person_id"
+        ]
+    )
+
+    if not delivery_person_ids.issubset(
+        truth_person_ids
+    ):
+        raise RuntimeError(
+            "BA delivery contains persons "
+            "outside 2024 education truth."
+        )
+
+    return delivery[
+        BA_2024_COLUMNS
     ]

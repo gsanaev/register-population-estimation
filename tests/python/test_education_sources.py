@@ -5,7 +5,9 @@ import pandas as pd
 import yaml
 
 from simulation.education_sources import (
+    BA_2024_COLUMNS,
     ZENSUS_2022_COLUMNS,
+    generate_ba_2024_delivery,
     generate_zensus_2022_delivery,
 )
 from simulation.education_truth import (
@@ -498,6 +500,479 @@ def test_zensus_generation_is_reproducible() -> None:
         education_truth,
         config,
         np.random.default_rng(20221),
+    )
+
+    pd.testing.assert_frame_equal(
+        first,
+        second,
+    )
+
+
+def expected_ba_counts(
+    config: dict,
+    education_truth: pd.DataFrame,
+) -> tuple[
+    dict[str, int],
+    int,
+    dict[str, int],
+]:
+    source_config = config[
+        "education"
+    ][
+        "ba_2024"
+    ]
+
+    truth_2024 = education_truth[
+        education_truth[
+            "reference_year"
+        ].eq(2024)
+    ]
+
+    age = truth_2024[
+        "age_at_reference_year"
+    ]
+
+    populations = {
+        "age_15_17": int(
+            age.between(
+                15,
+                17,
+            ).sum()
+        ),
+        "age_18_64": int(
+            age.between(
+                18,
+                64,
+            ).sum()
+        ),
+        "age_65_plus": int(
+            age.ge(65).sum()
+        ),
+    }
+
+    sampled = {
+        name: int(
+            np.floor(
+                populations[name]
+                * source_config[
+                    "coverage"
+                ][name]
+            )
+        )
+        for name in populations
+    }
+
+    n_base = sum(
+        sampled.values()
+    )
+
+    counts = {
+        "measurement_error": int(
+            np.floor(
+                n_base
+                * source_config[
+                    "measurement_error_rate"
+                ]
+            )
+        ),
+        "missing_qualification": int(
+            np.floor(
+                n_base
+                * source_config[
+                    "missing_qualification_rate"
+                ]
+            )
+        ),
+        "unknown_code": int(
+            np.floor(
+                n_base
+                * source_config[
+                    "unknown_code_rate"
+                ]
+            )
+        ),
+        "invalid_year": int(
+            np.floor(
+                n_base
+                * source_config[
+                    "invalid_year_rate"
+                ]
+            )
+        ),
+        "missing_person_id": int(
+            np.floor(
+                n_base
+                * source_config[
+                    "missing_person_id_rate"
+                ]
+            )
+        ),
+        "duplicate_records": int(
+            np.floor(
+                n_base
+                * source_config[
+                    "duplicate_rate"
+                ]
+            )
+        ),
+    }
+
+    return (
+        sampled,
+        n_base,
+        counts,
+    )
+
+
+def test_ba_schema_and_row_counts() -> None:
+    (
+        config,
+        education_truth,
+    ) = build_education_inputs()
+
+    delivery = generate_ba_2024_delivery(
+        education_truth,
+        config,
+        np.random.default_rng(20241),
+    )
+
+    (
+        _,
+        n_base,
+        counts,
+    ) = expected_ba_counts(
+        config,
+        education_truth,
+    )
+
+    assert list(
+        delivery.columns
+    ) == BA_2024_COLUMNS
+
+    assert len(delivery) == (
+        n_base
+        + counts[
+            "duplicate_records"
+        ]
+    )
+
+
+def test_ba_defect_counts_are_exact() -> None:
+    (
+        config,
+        education_truth,
+    ) = build_education_inputs()
+
+    delivery = generate_ba_2024_delivery(
+        education_truth,
+        config,
+        np.random.default_rng(20241),
+    )
+
+    (
+        _,
+        _,
+        counts,
+    ) = expected_ba_counts(
+        config,
+        education_truth,
+    )
+
+    assert int(
+        delivery[
+            "person_id"
+        ].isna().sum()
+    ) == counts[
+        "missing_person_id"
+    ]
+
+    assert int(
+        delivery[
+            "qualification_group"
+        ].isna().sum()
+    ) == counts[
+        "missing_qualification"
+    ]
+
+    assert int(
+        delivery[
+            "qualification_group"
+        ].eq(
+            "UNMAPPED_GROUP"
+        ).sum()
+    ) == counts[
+        "unknown_code"
+    ]
+
+    assert int(
+        delivery[
+            "reporting_year"
+        ].ne(2024).sum()
+    ) == counts[
+        "invalid_year"
+    ]
+
+
+def test_ba_measurement_errors_are_exact_and_plausible() -> None:
+    (
+        config,
+        education_truth,
+    ) = build_education_inputs()
+
+    delivery = generate_ba_2024_delivery(
+        education_truth,
+        config,
+        np.random.default_rng(20241),
+    )
+
+    (
+        _,
+        _,
+        counts,
+    ) = expected_ba_counts(
+        config,
+        education_truth,
+    )
+
+    group_order = {
+        "LOW_NONE": 1,
+        "SCHOOL_VOC": 2,
+        "HIGHER_ED": 3,
+    }
+
+    known = delivery.loc[
+        delivery[
+            "person_id"
+        ].notna()
+        & delivery[
+            "qualification_group"
+        ].isin(
+            group_order
+        )
+    ].copy()
+
+    truth_2024 = education_truth.loc[
+        education_truth[
+            "reference_year"
+        ].eq(2024),
+        [
+            "person_id",
+            "age_at_reference_year",
+            "true_attainment_level",
+        ],
+    ]
+
+    checked = known.merge(
+        truth_2024,
+        on="person_id",
+        how="left",
+        validate="many_to_one",
+    )
+
+    true_level = checked[
+        "true_attainment_level"
+    ]
+
+    checked[
+        "true_group"
+    ] = np.select(
+        [
+            true_level.eq(1),
+            true_level.between(
+                2,
+                3,
+            ),
+            true_level.between(
+                4,
+                6,
+            ),
+        ],
+        [
+            "LOW_NONE",
+            "SCHOOL_VOC",
+            "HIGHER_ED",
+        ],
+        default="INVALID",
+    )
+
+    mismatch = (
+        checked[
+            "qualification_group"
+        ]
+        != checked[
+            "true_group"
+        ]
+    )
+
+    assert int(
+        mismatch.sum()
+    ) == counts[
+        "measurement_error"
+    ]
+
+    observed_index = (
+        checked.loc[
+            mismatch,
+            "qualification_group",
+        ]
+        .map(
+            group_order
+        )
+        .to_numpy()
+    )
+
+    true_index = (
+        checked.loc[
+            mismatch,
+            "true_group",
+        ]
+        .map(
+            group_order
+        )
+        .to_numpy()
+    )
+
+    assert (
+        np.abs(
+            observed_index
+            - true_index
+        )
+        == 1
+    ).all()
+
+    higher_ed = checked[
+        "qualification_group"
+    ].eq(
+        "HIGHER_ED"
+    )
+
+    assert checked.loc[
+        higher_ed,
+        "age_at_reference_year",
+    ].ge(20).all()
+
+
+def test_ba_persons_belong_to_2024_truth() -> None:
+    (
+        config,
+        education_truth,
+    ) = build_education_inputs()
+
+    delivery = generate_ba_2024_delivery(
+        education_truth,
+        config,
+        np.random.default_rng(20241),
+    )
+
+    (
+        _,
+        n_base,
+        counts,
+    ) = expected_ba_counts(
+        config,
+        education_truth,
+    )
+
+    truth_ids = set(
+        education_truth.loc[
+            education_truth[
+                "reference_year"
+            ].eq(2024),
+            "person_id",
+        ]
+    )
+
+    observed_ids = set(
+        delivery[
+            "person_id"
+        ].dropna()
+    )
+
+    assert observed_ids.issubset(
+        truth_ids
+    )
+
+    assert delivery[
+        "person_id"
+    ].nunique(
+        dropna=True
+    ) == (
+        n_base
+        - counts[
+            "missing_person_id"
+        ]
+    )
+
+
+def test_ba_duplicate_keys_are_exact() -> None:
+    (
+        config,
+        education_truth,
+    ) = build_education_inputs()
+
+    delivery = generate_ba_2024_delivery(
+        education_truth,
+        config,
+        np.random.default_rng(20241),
+    )
+
+    (
+        _,
+        _,
+        counts,
+    ) = expected_ba_counts(
+        config,
+        education_truth,
+    )
+
+    key_counts = (
+        delivery.loc[
+            delivery[
+                "person_id"
+            ].notna()
+        ]
+        .groupby(
+            [
+                "person_id",
+                "reporting_year",
+            ]
+        )
+        .size()
+    )
+
+    duplicated_keys = (
+        key_counts[
+            key_counts > 1
+        ]
+    )
+
+    assert len(
+        duplicated_keys
+    ) == counts[
+        "duplicate_records"
+    ]
+
+    assert (
+        duplicated_keys == 2
+    ).all()
+
+
+def test_ba_generation_is_reproducible() -> None:
+    (
+        config,
+        education_truth,
+    ) = build_education_inputs()
+
+    first = generate_ba_2024_delivery(
+        education_truth,
+        config,
+        np.random.default_rng(20241),
+    )
+
+    second = generate_ba_2024_delivery(
+        education_truth,
+        config,
+        np.random.default_rng(20241),
     )
 
     pd.testing.assert_frame_equal(
