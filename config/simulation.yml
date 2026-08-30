@@ -12,6 +12,31 @@ former_residents:
   departure_date_start: "2022-01-01"
   departure_date_end: "2025-11-30"
 
+
+population_register:
+  undercoverage_probability: 0.02
+  stale_former_probability: 0.80
+
+  registration_status_probabilities:
+    main_residence: 0.93
+    secondary_residence: 0.07
+
+  registration_date_start: "2005-01-01"
+  registration_date_end: "2025-12-31"
+
+  last_move_date_start: "2010-01-01"
+  last_move_date_end: "2025-12-31"
+
+  imperfections:
+    citizenship_missing_probability: 0.005
+    registration_status_missing_probability: 0.003
+    last_move_shift_probability: 0.004
+    last_move_shift_days_min: 1
+    last_move_shift_days_max: 120
+    age_outlier_probability: 0.002
+    age_outlier_min: 97
+    age_outlier_max: 110
+
 regions:
   - region_code: R01
     region_name: "North City"
