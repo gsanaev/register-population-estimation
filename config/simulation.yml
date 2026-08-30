@@ -307,6 +307,69 @@ households:
 education:
   truth_seed: 2027
 
+  truth:
+    reference_year_2022: 2022
+    reference_year_2024: 2024
+    age_offset_2022: 3
+    age_offset_2024: 1
+    minimum_truth_age: 15
+
+    minimum_age_by_level:
+      - 15
+      - 15
+      - 16
+      - 20
+      - 22
+      - 25
+
+    base_attainment_probabilities:
+      age_15_17:
+        - 0.35
+        - 0.62
+        - 0.03
+        - 0.00
+        - 0.00
+        - 0.00
+
+      age_18_24:
+        - 0.08
+        - 0.42
+        - 0.30
+        - 0.18
+        - 0.02
+        - 0.00
+
+      age_25_39:
+        - 0.05
+        - 0.18
+        - 0.40
+        - 0.24
+        - 0.11
+        - 0.02
+
+      age_40_64:
+        - 0.08
+        - 0.22
+        - 0.45
+        - 0.15
+        - 0.08
+        - 0.02
+
+      age_65_plus:
+        - 0.15
+        - 0.30
+        - 0.38
+        - 0.10
+        - 0.05
+        - 0.02
+
+    progression_probabilities:
+      age_15_17: 0.65
+      age_18_24: 0.45
+      age_25_30: 0.15
+      age_31_39: 0.06
+      other: 0.015
+
   zensus_2022:
     seed: 20221
 
