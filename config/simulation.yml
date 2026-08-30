@@ -1,0 +1,15 @@
+simulation:
+  population_seed: 2026
+  reference_date: "2025-12-31"
+
+education:
+  truth_seed: 2027
+
+  zensus_2022:
+    seed: 20221
+
+  ba_2024:
+    seed: 20241
+
+  mikrozensus_2024:
+    seed: 20242
