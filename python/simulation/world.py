@@ -909,7 +909,11 @@ def generate_true_residents(
     true_residents["former_address_id"] = pd.NA
     true_residents["former_region_code"] = pd.NA
     true_residents["former_municipality_code"] = pd.NA
-    true_residents["departure_date_true"] = pd.NaT
+    true_residents["departure_date_true"] = pd.Series(
+        pd.NaT,
+        index=true_residents.index,
+        dtype="datetime64[ns]",
+    )
 
     return true_residents[POPULATION_WORLD_COLUMNS]
 
@@ -1181,8 +1185,277 @@ def generate_former_residents(
 
     former_residents[
         "departure_date_true"
-    ] = departure_dates
+    ] = pd.Series(
+        departure_dates,
+        index=former_residents.index,
+        dtype="datetime64[ns]",
+    )
 
     return former_residents[
+        POPULATION_WORLD_COLUMNS
+    ]
+
+
+def build_population_truth(
+    true_residents: pd.DataFrame,
+    former_residents: pd.DataFrame,
+    config: Mapping[str, Any],
+) -> pd.DataFrame:
+    """Combine and validate the complete hidden population truth."""
+
+    population_config = config.get("population")
+
+    if not isinstance(population_config, Mapping):
+        raise ValueError(
+            "Configuration must contain a population section."
+        )
+
+    n_true_residents = population_config.get(
+        "n_true_residents"
+    )
+    n_former_residents = population_config.get(
+        "n_former_residents"
+    )
+
+    if (
+        not isinstance(n_true_residents, int)
+        or n_true_residents <= 0
+    ):
+        raise ValueError(
+            "n_true_residents must be a positive integer."
+        )
+
+    if (
+        not isinstance(n_former_residents, int)
+        or n_former_residents <= 0
+    ):
+        raise ValueError(
+            "n_former_residents must be a positive integer."
+        )
+
+    components = (
+        (
+            "true residents",
+            true_residents,
+            n_true_residents,
+            1,
+        ),
+        (
+            "former residents",
+            former_residents,
+            n_former_residents,
+            0,
+        ),
+    )
+
+    for (
+        component_name,
+        component,
+        expected_rows,
+        expected_residence_state,
+    ) in components:
+        missing_columns = (
+            set(POPULATION_WORLD_COLUMNS)
+            - set(component.columns)
+        )
+
+        if missing_columns:
+            raise ValueError(
+                f"{component_name} are missing required fields: "
+                + ", ".join(
+                    sorted(missing_columns)
+                )
+            )
+
+        if len(component) != expected_rows:
+            raise ValueError(
+                f"{component_name} must contain "
+                f"{expected_rows} rows."
+            )
+
+        if component["person_id"].duplicated().any():
+            raise ValueError(
+                f"{component_name} contain duplicated person IDs."
+            )
+
+        if not (
+            component["true_resident"]
+            == expected_residence_state
+        ).all():
+            raise ValueError(
+                f"{component_name} contain an invalid "
+                "true_resident state."
+            )
+
+    departure_column = "departure_date_true"
+
+    non_date_columns = [
+        column
+        for column in POPULATION_WORLD_COLUMNS
+        if column != departure_column
+    ]
+
+    population_truth = pd.concat(
+        [
+            true_residents[
+                non_date_columns
+            ],
+            former_residents[
+                non_date_columns
+            ],
+        ],
+        ignore_index=True,
+    )
+
+    population_truth[
+        departure_column
+    ] = np.concatenate(
+        [
+            true_residents[
+                departure_column
+            ].to_numpy(
+                dtype="datetime64[ns]"
+            ),
+            former_residents[
+                departure_column
+            ].to_numpy(
+                dtype="datetime64[ns]"
+            ),
+        ]
+    )
+
+    if population_truth["person_id"].duplicated().any():
+        raise ValueError(
+            "Population truth contains duplicated person IDs."
+        )
+
+    population_truth = (
+        population_truth
+        .sort_values(
+            "person_id",
+            kind="stable",
+        )
+        .reset_index(drop=True)
+    )
+
+    expected_total = (
+        n_true_residents
+        + n_former_residents
+    )
+
+    if len(population_truth) != expected_total:
+        raise RuntimeError(
+            "Population truth does not reconcile "
+            "to the configured universe size."
+        )
+
+    expected_person_ids = [
+        f"P{number:06d}"
+        for number in range(
+            1,
+            expected_total + 1,
+        )
+    ]
+
+    if (
+        population_truth["person_id"].tolist()
+        != expected_person_ids
+    ):
+        raise ValueError(
+            "Population truth person IDs are not "
+            "complete and sequential."
+        )
+
+    common_fields = [
+        "sex",
+        "age",
+        "age_group",
+        "citizenship_group",
+    ]
+
+    if population_truth[
+        common_fields
+    ].isna().any().any():
+        raise ValueError(
+            "Population truth contains missing "
+            "demographic attributes."
+        )
+
+    current = (
+        population_truth["true_resident"]
+        == 1
+    )
+    former = (
+        population_truth["true_resident"]
+        == 0
+    )
+
+    true_location_fields = [
+        "true_household_id",
+        "true_address_id",
+        "true_region_code",
+        "true_municipality_code",
+    ]
+
+    former_location_fields = [
+        "former_household_id",
+        "former_address_id",
+        "former_region_code",
+        "former_municipality_code",
+    ]
+
+    if population_truth.loc[
+        current,
+        true_location_fields,
+    ].isna().any().any():
+        raise ValueError(
+            "True residents must have complete "
+            "current residence geography."
+        )
+
+    if population_truth.loc[
+        current,
+        former_location_fields,
+    ].notna().any().any():
+        raise ValueError(
+            "True residents must not have former "
+            "residence geography."
+        )
+
+    if population_truth.loc[
+        current,
+        "departure_date_true",
+    ].notna().any():
+        raise ValueError(
+            "True residents must not have a departure date."
+        )
+
+    if population_truth.loc[
+        former,
+        true_location_fields,
+    ].notna().any().any():
+        raise ValueError(
+            "Former residents must not have current "
+            "residence geography."
+        )
+
+    if population_truth.loc[
+        former,
+        former_location_fields,
+    ].isna().any().any():
+        raise ValueError(
+            "Former residents must have complete "
+            "former residence geography."
+        )
+
+    if population_truth.loc[
+        former,
+        "departure_date_true",
+    ].isna().any():
+        raise ValueError(
+            "Former residents must have a departure date."
+        )
+
+    return population_truth[
         POPULATION_WORLD_COLUMNS
     ]

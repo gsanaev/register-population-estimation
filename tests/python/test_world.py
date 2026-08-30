@@ -8,6 +8,7 @@ from simulation.world import (
     age_group_from_age,
     build_address_sampling_weights,
     build_age_bands,
+    build_population_truth,
     build_regions,
     generate_address_register,
     generate_former_residents,
@@ -1008,3 +1009,194 @@ def test_former_resident_generation_is_reproducible() -> None:
         first,
         second,
     )
+
+
+def test_population_truth_structure_and_counts() -> None:
+    config = load_config()
+    regions = build_regions(config)
+    age_bands = build_age_bands(config)
+
+    addresses = generate_address_register(
+        regions,
+        config,
+        np.random.default_rng(2026),
+    )
+
+    households = generate_households(
+        50_000,
+        addresses,
+        config,
+        np.random.default_rng(20261),
+    )
+
+    true_residents = generate_true_residents(
+        households,
+        age_bands,
+        config,
+        np.random.default_rng(20262),
+    )
+
+    former_residents = generate_former_residents(
+        households,
+        age_bands,
+        config,
+        np.random.default_rng(20263),
+    )
+
+    population_truth = build_population_truth(
+        true_residents,
+        former_residents,
+        config,
+    )
+
+    assert len(population_truth) == 53_000
+
+    assert list(population_truth.columns) == [
+        "person_id",
+        "true_resident",
+        "sex",
+        "age",
+        "age_group",
+        "citizenship_group",
+        "true_household_id",
+        "true_address_id",
+        "true_region_code",
+        "true_municipality_code",
+        "former_household_id",
+        "former_address_id",
+        "former_region_code",
+        "former_municipality_code",
+        "departure_date_true",
+    ]
+
+    assert population_truth["person_id"].is_unique
+
+    assert str(
+        population_truth[
+            "departure_date_true"
+        ].dtype
+    ) == "datetime64[ns]"
+
+    assert (
+        population_truth.iloc[0]["person_id"]
+        == "P000001"
+    )
+
+    assert (
+        population_truth.iloc[-1]["person_id"]
+        == "P053000"
+    )
+
+    residence_counts = (
+        population_truth["true_resident"]
+        .value_counts()
+        .to_dict()
+    )
+
+    assert residence_counts == {
+        1: 50_000,
+        0: 3_000,
+    }
+
+    expected_person_ids = np.array(
+        [
+            f"P{number:06d}"
+            for number in range(
+                1,
+                53_001,
+            )
+        ],
+        dtype=object,
+    )
+
+    np.testing.assert_array_equal(
+        population_truth[
+            "person_id"
+        ].to_numpy(),
+        expected_person_ids,
+    )
+
+
+def test_population_truth_preserves_residence_semantics() -> None:
+    config = load_config()
+    regions = build_regions(config)
+    age_bands = build_age_bands(config)
+
+    addresses = generate_address_register(
+        regions,
+        config,
+        np.random.default_rng(2026),
+    )
+
+    households = generate_households(
+        50_000,
+        addresses,
+        config,
+        np.random.default_rng(20261),
+    )
+
+    true_residents = generate_true_residents(
+        households,
+        age_bands,
+        config,
+        np.random.default_rng(20262),
+    )
+
+    former_residents = generate_former_residents(
+        households,
+        age_bands,
+        config,
+        np.random.default_rng(20263),
+    )
+
+    population_truth = build_population_truth(
+        true_residents,
+        former_residents,
+        config,
+    )
+
+    current = population_truth[
+        population_truth["true_resident"] == 1
+    ]
+
+    former = population_truth[
+        population_truth["true_resident"] == 0
+    ]
+
+    assert current[
+        [
+            "true_household_id",
+            "true_address_id",
+            "true_region_code",
+            "true_municipality_code",
+        ]
+    ].notna().all().all()
+
+    assert current[
+        [
+            "former_household_id",
+            "former_address_id",
+            "former_region_code",
+            "former_municipality_code",
+            "departure_date_true",
+        ]
+    ].isna().all().all()
+
+    assert former[
+        [
+            "true_household_id",
+            "true_address_id",
+            "true_region_code",
+            "true_municipality_code",
+        ]
+    ].isna().all().all()
+
+    assert former[
+        [
+            "former_household_id",
+            "former_address_id",
+            "former_region_code",
+            "former_municipality_code",
+            "departure_date_true",
+        ]
+    ].notna().all().all()
