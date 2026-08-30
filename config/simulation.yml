@@ -2,6 +2,111 @@ simulation:
   population_seed: 2026
   reference_date: "2025-12-31"
 
+regions:
+  - region_code: R01
+    region_name: "North City"
+    urbanicity: urban
+    population_weight: 0.11
+
+  - region_code: R02
+    region_name: "South City"
+    urbanicity: urban
+    population_weight: 0.10
+
+  - region_code: R03
+    region_name: "West District"
+    urbanicity: mixed
+    population_weight: 0.08
+
+  - region_code: R04
+    region_name: "East District"
+    urbanicity: mixed
+    population_weight: 0.07
+
+  - region_code: R05
+    region_name: "Central Region"
+    urbanicity: urban
+    population_weight: 0.10
+
+  - region_code: R06
+    region_name: "River Region"
+    urbanicity: mixed
+    population_weight: 0.08
+
+  - region_code: R07
+    region_name: "Mountain Region"
+    urbanicity: rural
+    population_weight: 0.06
+
+  - region_code: R08
+    region_name: "Lake Region"
+    urbanicity: rural
+    population_weight: 0.05
+
+  - region_code: R09
+    region_name: "Urban Belt"
+    urbanicity: urban
+    population_weight: 0.12
+
+  - region_code: R10
+    region_name: "Rural Belt"
+    urbanicity: rural
+    population_weight: 0.08
+
+  - region_code: R11
+    region_name: "Border Region"
+    urbanicity: mixed
+    population_weight: 0.05
+
+  - region_code: R12
+    region_name: "Metro Region"
+    urbanicity: urban
+    population_weight: 0.10
+
+demographics:
+  age_bands:
+    - age_band: "0-5"
+      min_age: 0
+      max_sample_age: 5
+      resident_probability: 0.06
+      former_probability: 0.03
+
+    - age_band: "6-17"
+      min_age: 6
+      max_sample_age: 17
+      resident_probability: 0.13
+      former_probability: 0.06
+
+    - age_band: "18-24"
+      min_age: 18
+      max_sample_age: 24
+      resident_probability: 0.09
+      former_probability: 0.14
+
+    - age_band: "25-39"
+      min_age: 25
+      max_sample_age: 39
+      resident_probability: 0.22
+      former_probability: 0.35
+
+    - age_band: "40-64"
+      min_age: 40
+      max_sample_age: 64
+      resident_probability: 0.30
+      former_probability: 0.29
+
+    - age_band: "65-79"
+      min_age: 65
+      max_sample_age: 79
+      resident_probability: 0.14
+      former_probability: 0.10
+
+    - age_band: "80+"
+      min_age: 80
+      max_sample_age: 95
+      resident_probability: 0.06
+      former_probability: 0.03
+
 education:
   truth_seed: 2027
 
