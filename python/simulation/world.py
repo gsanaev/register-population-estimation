@@ -60,6 +60,35 @@ HOUSEHOLD_COLUMNS = [
     "municipality_code",
 ]
 
+SEX_CATEGORIES = (
+    "F",
+    "M",
+)
+
+CITIZENSHIP_GROUPS = (
+    "DE",
+    "EU",
+    "Non-EU",
+)
+
+POPULATION_WORLD_COLUMNS = [
+    "person_id",
+    "true_resident",
+    "sex",
+    "age",
+    "age_group",
+    "citizenship_group",
+    "true_household_id",
+    "true_address_id",
+    "true_region_code",
+    "true_municipality_code",
+    "former_household_id",
+    "former_address_id",
+    "former_region_code",
+    "former_municipality_code",
+    "departure_date_true",
+]
+
 
 def build_regions(config: Mapping[str, Any]) -> pd.DataFrame:
     """Build and validate the synthetic regional reference table."""
@@ -635,3 +664,251 @@ def generate_households(
         )
 
     return households[HOUSEHOLD_COLUMNS]
+
+
+def _validated_probability_vector(
+    probability_config: Mapping[str, Any],
+    categories: tuple[str, ...],
+    name: str,
+) -> np.ndarray:
+    """Validate named probabilities and return them in category order."""
+
+    if not isinstance(probability_config, Mapping):
+        raise ValueError(
+            f"{name} must be a mapping of categories to probabilities."
+        )
+
+    if set(probability_config) != set(categories):
+        raise ValueError(
+            f"{name} must contain exactly: "
+            + ", ".join(categories)
+        )
+
+    probabilities = np.array(
+        [
+            probability_config[category]
+            for category in categories
+        ],
+        dtype=float,
+    )
+
+    if np.any(probabilities < 0):
+        raise ValueError(
+            f"{name} probabilities must be non-negative."
+        )
+
+    if not np.isclose(probabilities.sum(), 1.0):
+        raise ValueError(
+            f"{name} probabilities must sum to 1."
+        )
+
+    return probabilities
+
+
+def generate_true_residents(
+    households: pd.DataFrame,
+    age_bands: pd.DataFrame,
+    config: Mapping[str, Any],
+    rng: np.random.Generator,
+) -> pd.DataFrame:
+    """Generate the hidden synthetic true-resident population."""
+
+    population_config = config.get("population")
+
+    if not isinstance(population_config, Mapping):
+        raise ValueError("Configuration must contain a population section.")
+
+    n_true_residents = population_config.get(
+        "n_true_residents"
+    )
+
+    if (
+        not isinstance(n_true_residents, int)
+        or n_true_residents <= 0
+    ):
+        raise ValueError(
+            "n_true_residents must be a positive integer."
+        )
+
+    missing_household_columns = (
+        set(HOUSEHOLD_COLUMNS)
+        - set(households.columns)
+    )
+
+    if missing_household_columns:
+        raise ValueError(
+            "Households are missing required fields: "
+            + ", ".join(
+                sorted(missing_household_columns)
+            )
+        )
+
+    if households["household_id"].duplicated().any():
+        raise ValueError(
+            "Households contain duplicated household IDs."
+        )
+
+    household_sizes = households[
+        "household_size"
+    ].to_numpy(dtype=np.int64)
+
+    if np.any(
+        (household_sizes < 1)
+        | (household_sizes > 6)
+    ):
+        raise ValueError(
+            "Household sizes must be between 1 and 6."
+        )
+
+    if int(household_sizes.sum()) != n_true_residents:
+        raise ValueError(
+            "Household sizes do not reconcile to "
+            "n_true_residents."
+        )
+
+    household_assignments = np.repeat(
+        households["household_id"].to_numpy(
+            dtype=object
+        ),
+        household_sizes,
+    )
+
+    resident_households = pd.DataFrame(
+        {
+            "person_id": [
+                f"P{number:06d}"
+                for number in range(
+                    1,
+                    n_true_residents + 1,
+                )
+            ],
+            "true_household_id":
+                household_assignments,
+        }
+    )
+
+    resident_households = resident_households.merge(
+        households[
+            [
+                "household_id",
+                "address_id",
+                "region_code",
+                "municipality_code",
+            ]
+        ],
+        left_on="true_household_id",
+        right_on="household_id",
+        how="left",
+        validate="many_to_one",
+        sort=False,
+    ).drop(
+        columns="household_id"
+    )
+
+    if resident_households[
+        [
+            "address_id",
+            "region_code",
+            "municipality_code",
+        ]
+    ].isna().any().any():
+        raise RuntimeError(
+            "Resident household geography could not be resolved."
+        )
+
+    demographics = config.get("demographics")
+
+    if not isinstance(demographics, Mapping):
+        raise ValueError(
+            "Configuration must contain a demographics section."
+        )
+
+    sex_probabilities = _validated_probability_vector(
+        demographics.get(
+            "sex_probabilities"
+        ),
+        SEX_CATEGORIES,
+        "sex_probabilities",
+    )
+
+    citizenship_probabilities = (
+        _validated_probability_vector(
+            demographics.get(
+                "resident_citizenship_probabilities"
+            ),
+            CITIZENSHIP_GROUPS,
+            "resident_citizenship_probabilities",
+        )
+    )
+
+    # Preserve the current generator's conceptual draw order:
+    # sex, age, then citizenship.
+    sex = rng.choice(
+        SEX_CATEGORIES,
+        size=n_true_residents,
+        replace=True,
+        p=sex_probabilities,
+    )
+
+    age = sample_age(
+        n_true_residents,
+        age_bands,
+        "resident_probability",
+        rng,
+    )
+
+    age_group = age_group_from_age(
+        age,
+        age_bands,
+    )
+
+    citizenship_group = rng.choice(
+        CITIZENSHIP_GROUPS,
+        size=n_true_residents,
+        replace=True,
+        p=citizenship_probabilities,
+    )
+
+    true_residents = pd.DataFrame(
+        {
+            "person_id":
+                resident_households["person_id"],
+            "true_resident":
+                np.ones(
+                    n_true_residents,
+                    dtype=np.int64,
+                ),
+            "sex":
+                sex,
+            "age":
+                age,
+            "age_group":
+                age_group,
+            "citizenship_group":
+                citizenship_group,
+            "true_household_id":
+                resident_households[
+                    "true_household_id"
+                ],
+            "true_address_id":
+                resident_households[
+                    "address_id"
+                ],
+            "true_region_code":
+                resident_households[
+                    "region_code"
+                ],
+            "true_municipality_code":
+                resident_households[
+                    "municipality_code"
+                ],
+        }
+    )
+
+    true_residents["former_household_id"] = pd.NA
+    true_residents["former_address_id"] = pd.NA
+    true_residents["former_region_code"] = pd.NA
+    true_residents["former_municipality_code"] = pd.NA
+    true_residents["departure_date_true"] = pd.NaT
+
+    return true_residents[POPULATION_WORLD_COLUMNS]

@@ -69,6 +69,15 @@ regions:
     population_weight: 0.10
 
 demographics:
+  sex_probabilities:
+    "F": 0.50
+    "M": 0.50
+
+  resident_citizenship_probabilities:
+    "DE": 0.76
+    "EU": 0.14
+    "Non-EU": 0.10
+
   age_bands:
     - age_band: "0-5"
       min_age: 0
