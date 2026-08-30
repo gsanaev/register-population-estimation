@@ -372,6 +372,24 @@ education:
 
   zensus_2022:
     seed: 20221
+    reference_year: 2022
+    invalid_reference_year: 2021
+    coverage: 0.20
+
+    measurement_error_rate: 0.015
+    missing_qualification_rate: 0.010
+    unknown_code_rate: 0.004
+    invalid_year_rate: 0.002
+    missing_person_id_rate: 0.002
+    duplicate_rate: 0.005
+
+    qualification_codes:
+      - "NONE_LOW"
+      - "SCHOOL"
+      - "VOC_POSTSEC"
+      - "BACHELOR_EQ"
+      - "MASTER_EQ"
+      - "DOCTORATE"
 
   ba_2024:
     seed: 20241
