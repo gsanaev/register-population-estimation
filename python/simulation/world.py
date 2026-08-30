@@ -43,6 +43,23 @@ ADDRESS_COLUMNS = [
     "address_type",
 ]
 
+HOUSEHOLD_SIZES = (
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+)
+
+HOUSEHOLD_COLUMNS = [
+    "household_id",
+    "household_size",
+    "address_id",
+    "region_code",
+    "municipality_code",
+]
+
 
 def build_regions(config: Mapping[str, Any]) -> pd.DataFrame:
     """Build and validate the synthetic regional reference table."""
@@ -454,3 +471,167 @@ def build_address_sampling_weights(
         .map(weights_by_type)
         .to_numpy(dtype=float)
     )
+
+
+def generate_households(
+    n_residents: int,
+    address_register: pd.DataFrame,
+    config: Mapping[str, Any],
+    rng: np.random.Generator,
+) -> pd.DataFrame:
+    """Generate households whose sizes reconcile exactly to residents."""
+
+    if not isinstance(n_residents, int) or n_residents <= 0:
+        raise ValueError("n_residents must be a positive integer.")
+
+    household_config = config.get("households")
+
+    if not isinstance(household_config, Mapping):
+        raise ValueError("Configuration must contain a households section.")
+
+    size_probability_config = household_config.get(
+        "size_probabilities"
+    )
+
+    if not isinstance(size_probability_config, Mapping):
+        raise ValueError(
+            "households must define size_probabilities."
+        )
+
+    if set(size_probability_config) != set(HOUSEHOLD_SIZES):
+        raise ValueError(
+            "Household-size probabilities must contain "
+            "exactly sizes 1 through 6."
+        )
+
+    size_probabilities = np.array(
+        [
+            size_probability_config[size]
+            for size in HOUSEHOLD_SIZES
+        ],
+        dtype=float,
+    )
+
+    if np.any(size_probabilities < 0):
+        raise ValueError(
+            "Household-size probabilities must be non-negative."
+        )
+
+    if not np.isclose(size_probabilities.sum(), 1.0):
+        raise ValueError(
+            "Household-size probabilities must sum to 1."
+        )
+
+    # Because the minimum household size is one, n_residents candidate
+    # draws are always sufficient to reach the target population.
+    candidate_sizes = rng.choice(
+        HOUSEHOLD_SIZES,
+        size=n_residents,
+        replace=True,
+        p=size_probabilities,
+    ).astype(np.int64)
+
+    cumulative_sizes = np.cumsum(candidate_sizes)
+
+    final_position = int(
+        np.searchsorted(
+            cumulative_sizes,
+            n_residents,
+            side="left",
+        )
+    )
+
+    household_sizes = candidate_sizes[
+        : final_position + 1
+    ].copy()
+
+    overshoot = int(
+        household_sizes.sum()
+        - n_residents
+    )
+
+    household_sizes[-1] -= overshoot
+
+    if household_sizes[-1] < 1:
+        raise RuntimeError(
+            "Final household adjustment produced an invalid size."
+        )
+
+    n_households = len(household_sizes)
+
+    address_ids = address_register[
+        "address_id"
+    ].to_numpy(dtype=object)
+
+    if len(address_ids) == 0:
+        raise ValueError(
+            "Address register must contain at least one address."
+        )
+
+    if pd.Series(address_ids).duplicated().any():
+        raise ValueError(
+            "Address register contains duplicated address IDs."
+        )
+
+    address_weights = build_address_sampling_weights(
+        address_register,
+        config,
+    )
+
+    address_probabilities = (
+        address_weights
+        / address_weights.sum()
+    )
+
+    sampled_address_ids = rng.choice(
+        address_ids,
+        size=n_households,
+        replace=True,
+        p=address_probabilities,
+    )
+
+    households = pd.DataFrame(
+        {
+            "household_id": [
+                f"H{number:06d}"
+                for number in range(
+                    1,
+                    n_households + 1,
+                )
+            ],
+            "household_size": household_sizes,
+            "address_id": sampled_address_ids,
+        }
+    )
+
+    households = households.merge(
+        address_register[
+            [
+                "address_id",
+                "region_code",
+                "municipality_code",
+            ]
+        ],
+        on="address_id",
+        how="left",
+        validate="many_to_one",
+        sort=False,
+    )
+
+    if households[
+        [
+            "region_code",
+            "municipality_code",
+        ]
+    ].isna().any().any():
+        raise RuntimeError(
+            "Household geography could not be resolved "
+            "from the address register."
+        )
+
+    if int(households["household_size"].sum()) != n_residents:
+        raise RuntimeError(
+            "Household sizes do not reconcile to the resident total."
+        )
+
+    return households[HOUSEHOLD_COLUMNS]

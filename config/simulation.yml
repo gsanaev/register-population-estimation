@@ -2,6 +2,11 @@ simulation:
   population_seed: 2026
   reference_date: "2025-12-31"
 
+
+population:
+  n_true_residents: 50000
+  n_former_residents: 3000
+
 regions:
   - region_code: R01
     region_name: "North City"
@@ -132,6 +137,16 @@ addresses:
     single_family: 1.0
     multi_family: 2.5
     large_residential: 6.0
+
+
+households:
+  size_probabilities:
+    1: 0.40
+    2: 0.32
+    3: 0.13
+    4: 0.09
+    5: 0.04
+    6: 0.02
 
 education:
   truth_seed: 2027

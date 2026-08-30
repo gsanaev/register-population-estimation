@@ -10,6 +10,7 @@ from simulation.world import (
     build_age_bands,
     build_regions,
     generate_address_register,
+    generate_households,
     sample_age,
 )
 
@@ -323,3 +324,164 @@ def test_address_sampling_weights_match_address_type() -> None:
             ]
         ),
     )
+
+
+def test_households_reconcile_to_true_resident_total() -> None:
+    config = load_config()
+    regions = build_regions(config)
+
+    address_rng = np.random.default_rng(2026)
+    addresses = generate_address_register(
+        regions,
+        config,
+        address_rng,
+    )
+
+    household_rng = np.random.default_rng(20261)
+    households = generate_households(
+        config["population"]["n_true_residents"],
+        addresses,
+        config,
+        household_rng,
+    )
+
+    assert households["household_id"].is_unique
+
+    assert (
+        households["household_size"].sum()
+        == config["population"]["n_true_residents"]
+    )
+
+    assert households["household_size"].between(
+        1,
+        6,
+    ).all()
+
+    assert households.iloc[0]["household_id"] == "H000001"
+
+    expected_last_id = (
+        f"H{len(households):06d}"
+    )
+
+    assert (
+        households.iloc[-1]["household_id"]
+        == expected_last_id
+    )
+
+
+def test_household_addresses_exist_and_geography_matches() -> None:
+    config = load_config()
+    regions = build_regions(config)
+
+    address_rng = np.random.default_rng(2026)
+    addresses = generate_address_register(
+        regions,
+        config,
+        address_rng,
+    )
+
+    household_rng = np.random.default_rng(20261)
+    households = generate_households(
+        5_000,
+        addresses,
+        config,
+        household_rng,
+    )
+
+    assert set(households["address_id"]).issubset(
+        set(addresses["address_id"])
+    )
+
+    checked = households.merge(
+        addresses[
+            [
+                "address_id",
+                "region_code",
+                "municipality_code",
+            ]
+        ],
+        on="address_id",
+        how="left",
+        suffixes=("_household", "_address"),
+        validate="many_to_one",
+    )
+
+    assert (
+        checked["region_code_household"]
+        == checked["region_code_address"]
+    ).all()
+
+    assert (
+        checked["municipality_code_household"]
+        == checked["municipality_code_address"]
+    ).all()
+
+
+def test_household_generation_is_reproducible() -> None:
+    config = load_config()
+    regions = build_regions(config)
+
+    address_rng = np.random.default_rng(2026)
+    addresses = generate_address_register(
+        regions,
+        config,
+        address_rng,
+    )
+
+    first_rng = np.random.default_rng(20261)
+    second_rng = np.random.default_rng(20261)
+
+    first = generate_households(
+        10_000,
+        addresses,
+        config,
+        first_rng,
+    )
+
+    second = generate_households(
+        10_000,
+        addresses,
+        config,
+        second_rng,
+    )
+
+    pd.testing.assert_frame_equal(
+        first,
+        second,
+    )
+
+
+def test_household_size_distribution_is_plausible() -> None:
+    config = load_config()
+    regions = build_regions(config)
+
+    address_rng = np.random.default_rng(2026)
+    addresses = generate_address_register(
+        regions,
+        config,
+        address_rng,
+    )
+
+    household_rng = np.random.default_rng(20261)
+    households = generate_households(
+        50_000,
+        addresses,
+        config,
+        household_rng,
+    )
+
+    realised = (
+        households["household_size"]
+        .value_counts(normalize=True)
+        .sort_index()
+    )
+
+    expected = config[
+        "households"
+    ]["size_probabilities"]
+
+    for size, probability in expected.items():
+        assert abs(
+            realised.get(size, 0.0)
+            - probability
+        ) < 0.02
