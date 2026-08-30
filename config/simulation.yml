@@ -7,6 +7,11 @@ population:
   n_true_residents: 50000
   n_former_residents: 3000
 
+
+former_residents:
+  departure_date_start: "2022-01-01"
+  departure_date_end: "2025-11-30"
+
 regions:
   - region_code: R01
     region_name: "North City"
@@ -77,6 +82,11 @@ demographics:
     "DE": 0.76
     "EU": 0.14
     "Non-EU": 0.10
+
+  former_citizenship_probabilities:
+    "DE": 0.60
+    "EU": 0.18
+    "Non-EU": 0.22
 
   age_bands:
     - age_band: "0-5"

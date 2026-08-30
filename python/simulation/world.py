@@ -912,3 +912,277 @@ def generate_true_residents(
     true_residents["departure_date_true"] = pd.NaT
 
     return true_residents[POPULATION_WORLD_COLUMNS]
+
+
+def generate_former_residents(
+    households: pd.DataFrame,
+    age_bands: pd.DataFrame,
+    config: Mapping[str, Any],
+    rng: np.random.Generator,
+) -> pd.DataFrame:
+    """Generate synthetic former residents with historical locations."""
+
+    population_config = config.get("population")
+
+    if not isinstance(population_config, Mapping):
+        raise ValueError(
+            "Configuration must contain a population section."
+        )
+
+    n_true_residents = population_config.get(
+        "n_true_residents"
+    )
+    n_former_residents = population_config.get(
+        "n_former_residents"
+    )
+
+    if (
+        not isinstance(n_true_residents, int)
+        or n_true_residents <= 0
+    ):
+        raise ValueError(
+            "n_true_residents must be a positive integer."
+        )
+
+    if (
+        not isinstance(n_former_residents, int)
+        or n_former_residents <= 0
+    ):
+        raise ValueError(
+            "n_former_residents must be a positive integer."
+        )
+
+    missing_household_columns = (
+        set(HOUSEHOLD_COLUMNS)
+        - set(households.columns)
+    )
+
+    if missing_household_columns:
+        raise ValueError(
+            "Households are missing required fields: "
+            + ", ".join(
+                sorted(missing_household_columns)
+            )
+        )
+
+    if households["household_id"].duplicated().any():
+        raise ValueError(
+            "Households contain duplicated household IDs."
+        )
+
+    household_ids = households[
+        "household_id"
+    ].to_numpy(dtype=object)
+
+    if len(household_ids) == 0:
+        raise ValueError(
+            "Households must contain at least one household."
+        )
+
+    # The original generator samples former households uniformly,
+    # without using household-size or address-type weights.
+    former_household_ids = rng.choice(
+        household_ids,
+        size=n_former_residents,
+        replace=True,
+    )
+
+    first_former_id = n_true_residents + 1
+    last_former_id = (
+        n_true_residents
+        + n_former_residents
+    )
+
+    former_households = pd.DataFrame(
+        {
+            "person_id": [
+                f"P{number:06d}"
+                for number in range(
+                    first_former_id,
+                    last_former_id + 1,
+                )
+            ],
+            "former_household_id":
+                former_household_ids,
+        }
+    )
+
+    former_households = former_households.merge(
+        households[
+            [
+                "household_id",
+                "address_id",
+                "region_code",
+                "municipality_code",
+            ]
+        ],
+        left_on="former_household_id",
+        right_on="household_id",
+        how="left",
+        validate="many_to_one",
+        sort=False,
+    ).drop(
+        columns="household_id"
+    )
+
+    if former_households[
+        [
+            "address_id",
+            "region_code",
+            "municipality_code",
+        ]
+    ].isna().any().any():
+        raise RuntimeError(
+            "Former-resident household geography "
+            "could not be resolved."
+        )
+
+    demographics = config.get("demographics")
+
+    if not isinstance(demographics, Mapping):
+        raise ValueError(
+            "Configuration must contain a demographics section."
+        )
+
+    sex_probabilities = _validated_probability_vector(
+        demographics.get(
+            "sex_probabilities"
+        ),
+        SEX_CATEGORIES,
+        "sex_probabilities",
+    )
+
+    citizenship_probabilities = (
+        _validated_probability_vector(
+            demographics.get(
+                "former_citizenship_probabilities"
+            ),
+            CITIZENSHIP_GROUPS,
+            "former_citizenship_probabilities",
+        )
+    )
+
+    former_config = config.get(
+        "former_residents"
+    )
+
+    if not isinstance(former_config, Mapping):
+        raise ValueError(
+            "Configuration must contain a former_residents section."
+        )
+
+    departure_start = pd.Timestamp(
+        former_config.get(
+            "departure_date_start"
+        )
+    )
+    departure_end = pd.Timestamp(
+        former_config.get(
+            "departure_date_end"
+        )
+    )
+
+    if departure_end < departure_start:
+        raise ValueError(
+            "Former-resident departure-date range is invalid."
+        )
+
+    # Preserve the conceptual draw order of the R generator:
+    # household, sex, age, citizenship, departure date.
+    sex = rng.choice(
+        SEX_CATEGORIES,
+        size=n_former_residents,
+        replace=True,
+        p=sex_probabilities,
+    )
+
+    age = sample_age(
+        n_former_residents,
+        age_bands,
+        "former_probability",
+        rng,
+    )
+
+    age_group = age_group_from_age(
+        age,
+        age_bands,
+    )
+
+    citizenship_group = rng.choice(
+        CITIZENSHIP_GROUPS,
+        size=n_former_residents,
+        replace=True,
+        p=citizenship_probabilities,
+    )
+
+    n_departure_days = (
+        departure_end - departure_start
+    ).days + 1
+
+    departure_offsets = rng.integers(
+        0,
+        n_departure_days,
+        size=n_former_residents,
+    )
+
+    departure_dates = (
+        departure_start
+        + pd.to_timedelta(
+            departure_offsets,
+            unit="D",
+        )
+    )
+
+    former_residents = pd.DataFrame(
+        {
+            "person_id":
+                former_households["person_id"],
+            "true_resident":
+                np.zeros(
+                    n_former_residents,
+                    dtype=np.int64,
+                ),
+            "sex":
+                sex,
+            "age":
+                age,
+            "age_group":
+                age_group,
+            "citizenship_group":
+                citizenship_group,
+        }
+    )
+
+    former_residents["true_household_id"] = pd.NA
+    former_residents["true_address_id"] = pd.NA
+    former_residents["true_region_code"] = pd.NA
+    former_residents["true_municipality_code"] = pd.NA
+
+    former_residents["former_household_id"] = (
+        former_households[
+            "former_household_id"
+        ]
+    )
+    former_residents["former_address_id"] = (
+        former_households[
+            "address_id"
+        ]
+    )
+    former_residents["former_region_code"] = (
+        former_households[
+            "region_code"
+        ]
+    )
+    former_residents[
+        "former_municipality_code"
+    ] = former_households[
+        "municipality_code"
+    ]
+
+    former_residents[
+        "departure_date_true"
+    ] = departure_dates
+
+    return former_residents[
+        POPULATION_WORLD_COLUMNS
+    ]

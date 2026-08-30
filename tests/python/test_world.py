@@ -10,6 +10,7 @@ from simulation.world import (
     build_age_bands,
     build_regions,
     generate_address_register,
+    generate_former_residents,
     generate_households,
     generate_true_residents,
     sample_age,
@@ -726,6 +727,281 @@ def test_true_resident_generation_is_reproducible() -> None:
         age_bands,
         config,
         np.random.default_rng(20262),
+    )
+
+    pd.testing.assert_frame_equal(
+        first,
+        second,
+    )
+
+
+def test_former_resident_population_structure() -> None:
+    config = load_config()
+    regions = build_regions(config)
+    age_bands = build_age_bands(config)
+
+    addresses = generate_address_register(
+        regions,
+        config,
+        np.random.default_rng(2026),
+    )
+
+    households = generate_households(
+        config["population"]["n_true_residents"],
+        addresses,
+        config,
+        np.random.default_rng(20261),
+    )
+
+    former = generate_former_residents(
+        households,
+        age_bands,
+        config,
+        np.random.default_rng(20263),
+    )
+
+    assert len(former) == 3_000
+    assert former["person_id"].is_unique
+
+    assert former.iloc[0]["person_id"] == "P050001"
+    assert former.iloc[-1]["person_id"] == "P053000"
+
+    assert (former["true_resident"] == 0).all()
+
+    assert former[
+        [
+            "true_household_id",
+            "true_address_id",
+            "true_region_code",
+            "true_municipality_code",
+        ]
+    ].isna().all().all()
+
+    assert former[
+        [
+            "former_household_id",
+            "former_address_id",
+            "former_region_code",
+            "former_municipality_code",
+            "departure_date_true",
+        ]
+    ].notna().all().all()
+
+
+def test_former_resident_geography_matches_households() -> None:
+    config = load_config()
+    regions = build_regions(config)
+    age_bands = build_age_bands(config)
+
+    addresses = generate_address_register(
+        regions,
+        config,
+        np.random.default_rng(2026),
+    )
+
+    households = generate_households(
+        50_000,
+        addresses,
+        config,
+        np.random.default_rng(20261),
+    )
+
+    former = generate_former_residents(
+        households,
+        age_bands,
+        config,
+        np.random.default_rng(20263),
+    )
+
+    checked = former.merge(
+        households[
+            [
+                "household_id",
+                "address_id",
+                "region_code",
+                "municipality_code",
+            ]
+        ],
+        left_on="former_household_id",
+        right_on="household_id",
+        how="left",
+        validate="many_to_one",
+    )
+
+    assert (
+        checked["former_address_id"]
+        == checked["address_id"]
+    ).all()
+
+    assert (
+        checked["former_region_code"]
+        == checked["region_code"]
+    ).all()
+
+    assert (
+        checked["former_municipality_code"]
+        == checked["municipality_code"]
+    ).all()
+
+
+def test_former_resident_demographics_and_dates() -> None:
+    config = load_config()
+    regions = build_regions(config)
+    age_bands = build_age_bands(config)
+
+    addresses = generate_address_register(
+        regions,
+        config,
+        np.random.default_rng(2026),
+    )
+
+    households = generate_households(
+        50_000,
+        addresses,
+        config,
+        np.random.default_rng(20261),
+    )
+
+    former = generate_former_residents(
+        households,
+        age_bands,
+        config,
+        np.random.default_rng(20263),
+    )
+
+    assert former["age"].between(
+        0,
+        95,
+    ).all()
+
+    expected_age_group = age_group_from_age(
+        former["age"].to_numpy(),
+        age_bands,
+    )
+
+    np.testing.assert_array_equal(
+        former["age_group"].to_numpy(),
+        expected_age_group,
+    )
+
+    sex_shares = former[
+        "sex"
+    ].value_counts(normalize=True)
+
+    assert abs(
+        sex_shares["F"] - 0.50
+    ) < 0.04
+
+    citizenship_shares = former[
+        "citizenship_group"
+    ].value_counts(normalize=True)
+
+    expected_citizenship = config[
+        "demographics"
+    ]["former_citizenship_probabilities"]
+
+    for category, probability in (
+        expected_citizenship.items()
+    ):
+        assert abs(
+            citizenship_shares[category]
+            - probability
+        ) < 0.04
+
+    start = pd.Timestamp(
+        config[
+            "former_residents"
+        ]["departure_date_start"]
+    )
+    end = pd.Timestamp(
+        config[
+            "former_residents"
+        ]["departure_date_end"]
+    )
+
+    assert (
+        former["departure_date_true"] >= start
+    ).all()
+
+    assert (
+        former["departure_date_true"] <= end
+    ).all()
+
+
+def test_former_resident_age_distribution_is_plausible() -> None:
+    config = load_config()
+    regions = build_regions(config)
+    age_bands = build_age_bands(config)
+
+    addresses = generate_address_register(
+        regions,
+        config,
+        np.random.default_rng(2026),
+    )
+
+    households = generate_households(
+        50_000,
+        addresses,
+        config,
+        np.random.default_rng(20261),
+    )
+
+    former = generate_former_residents(
+        households,
+        age_bands,
+        config,
+        np.random.default_rng(20263),
+    )
+
+    realised = (
+        former["age_group"]
+        .value_counts(normalize=True)
+        .reindex(
+            age_bands["age_band"]
+        )
+    )
+
+    expected = age_bands.set_index(
+        "age_band"
+    )["former_probability"]
+
+    for age_band in age_bands["age_band"]:
+        assert abs(
+            realised[age_band]
+            - expected[age_band]
+        ) < 0.03
+
+
+def test_former_resident_generation_is_reproducible() -> None:
+    config = load_config()
+    regions = build_regions(config)
+    age_bands = build_age_bands(config)
+
+    addresses = generate_address_register(
+        regions,
+        config,
+        np.random.default_rng(2026),
+    )
+
+    households = generate_households(
+        50_000,
+        addresses,
+        config,
+        np.random.default_rng(20261),
+    )
+
+    first = generate_former_residents(
+        households,
+        age_bands,
+        config,
+        np.random.default_rng(20263),
+    )
+
+    second = generate_former_residents(
+        households,
+        age_bands,
+        config,
+        np.random.default_rng(20263),
     )
 
     pd.testing.assert_frame_equal(
