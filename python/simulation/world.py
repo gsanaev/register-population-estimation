@@ -22,11 +22,26 @@ AGE_BAND_COLUMNS = [
     "former_probability",
 ]
 
-VALID_URBANICITY = {
+VALID_URBANICITY = (
     "urban",
     "mixed",
     "rural",
-}
+)
+
+ADDRESS_TYPES = (
+    "single_family",
+    "multi_family",
+    "large_residential",
+)
+
+ADDRESS_COLUMNS = [
+    "address_id",
+    "region_code",
+    "region_name",
+    "municipality_code",
+    "urbanicity",
+    "address_type",
+]
 
 
 def build_regions(config: Mapping[str, Any]) -> pd.DataFrame:
@@ -212,3 +227,230 @@ def age_group_from_age(
         raise ValueError("Unable to assign an age group.")
 
     return labels[band_positions]
+
+
+def generate_address_register(
+    regions: pd.DataFrame,
+    config: Mapping[str, Any],
+    rng: np.random.Generator,
+) -> pd.DataFrame:
+    """Generate the synthetic address reference register."""
+
+    address_config = config.get("addresses")
+
+    if not isinstance(address_config, Mapping):
+        raise ValueError("Configuration must contain an addresses section.")
+
+    n_addresses = address_config.get("n_addresses")
+    municipalities_per_region = address_config.get(
+        "municipalities_per_region"
+    )
+    type_probabilities = address_config.get(
+        "address_type_probabilities"
+    )
+
+    if not isinstance(n_addresses, int) or n_addresses <= 0:
+        raise ValueError("n_addresses must be a positive integer.")
+
+    if (
+        not isinstance(municipalities_per_region, int)
+        or municipalities_per_region <= 0
+    ):
+        raise ValueError(
+            "municipalities_per_region must be a positive integer."
+        )
+
+    if not isinstance(type_probabilities, Mapping):
+        raise ValueError(
+            "addresses must define address_type_probabilities."
+        )
+
+    for urbanicity in VALID_URBANICITY:
+        probabilities_by_type = type_probabilities.get(
+            urbanicity
+        )
+
+        if not isinstance(probabilities_by_type, Mapping):
+            raise ValueError(
+                "Missing address-type probabilities for "
+                f"{urbanicity}."
+            )
+
+        if set(probabilities_by_type) != set(ADDRESS_TYPES):
+            raise ValueError(
+                "Address-type probability definitions must contain "
+                "exactly the configured address types."
+            )
+
+        probabilities = np.array(
+            [
+                probabilities_by_type[address_type]
+                for address_type in ADDRESS_TYPES
+            ],
+            dtype=float,
+        )
+
+        if np.any(probabilities < 0):
+            raise ValueError(
+                "Address-type probabilities must be non-negative."
+            )
+
+        if not np.isclose(probabilities.sum(), 1.0):
+            raise ValueError(
+                "Address-type probabilities must sum to 1."
+            )
+
+    region_codes = regions["region_code"].to_numpy(
+        dtype=object
+    )
+    region_weights = regions["population_weight"].to_numpy(
+        dtype=float
+    )
+
+    sampled_region_codes = rng.choice(
+        region_codes,
+        size=n_addresses,
+        replace=True,
+        p=region_weights,
+    )
+
+    address_register = pd.DataFrame(
+        {
+            "address_id": [
+                f"A{number:06d}"
+                for number in range(
+                    1,
+                    n_addresses + 1,
+                )
+            ],
+            "region_code": sampled_region_codes,
+        }
+    )
+
+    address_register = address_register.merge(
+        regions[
+            [
+                "region_code",
+                "region_name",
+                "urbanicity",
+            ]
+        ],
+        on="region_code",
+        how="left",
+        validate="many_to_one",
+        sort=False,
+    )
+
+    municipality_numbers = rng.integers(
+        1,
+        municipalities_per_region + 1,
+        size=n_addresses,
+    )
+
+    address_register["municipality_code"] = [
+        f"{region_code}-M{municipality_number:02d}"
+        for region_code, municipality_number in zip(
+            address_register["region_code"],
+            municipality_numbers,
+            strict=True,
+        )
+    ]
+
+    address_types = np.empty(
+        n_addresses,
+        dtype=object,
+    )
+
+    for urbanicity in VALID_URBANICITY:
+        selected = (
+            address_register["urbanicity"].to_numpy()
+            == urbanicity
+        )
+        n_selected = int(selected.sum())
+
+        if n_selected == 0:
+            continue
+
+        probabilities_by_type = type_probabilities[
+            urbanicity
+        ]
+        probabilities = np.array(
+            [
+                probabilities_by_type[address_type]
+                for address_type in ADDRESS_TYPES
+            ],
+            dtype=float,
+        )
+
+        address_types[selected] = rng.choice(
+            ADDRESS_TYPES,
+            size=n_selected,
+            replace=True,
+            p=probabilities,
+        )
+
+    address_register["address_type"] = address_types
+
+    return address_register[ADDRESS_COLUMNS]
+
+
+def build_address_sampling_weights(
+    address_register: pd.DataFrame,
+    config: Mapping[str, Any],
+) -> np.ndarray:
+    """Return household-sampling weights for synthetic addresses."""
+
+    address_config = config.get("addresses")
+
+    if not isinstance(address_config, Mapping):
+        raise ValueError("Configuration must contain an addresses section.")
+
+    weight_config = address_config.get(
+        "household_sampling_weights"
+    )
+
+    if not isinstance(weight_config, Mapping):
+        raise ValueError(
+            "addresses must define household_sampling_weights."
+        )
+
+    if set(weight_config) != set(ADDRESS_TYPES):
+        raise ValueError(
+            "Household sampling weights must contain exactly "
+            "the configured address types."
+        )
+
+    weights_by_type = {
+        address_type: float(
+            weight_config[address_type]
+        )
+        for address_type in ADDRESS_TYPES
+    }
+
+    if any(
+        weight <= 0
+        for weight in weights_by_type.values()
+    ):
+        raise ValueError(
+            "Household sampling weights must be positive."
+        )
+
+    unknown_types = set(
+        address_register["address_type"].dropna()
+    ) - set(ADDRESS_TYPES)
+
+    if unknown_types:
+        raise ValueError(
+            "Address register contains unknown address types."
+        )
+
+    if address_register["address_type"].isna().any():
+        raise ValueError(
+            "Address register contains missing address types."
+        )
+
+    return (
+        address_register["address_type"]
+        .map(weights_by_type)
+        .to_numpy(dtype=float)
+    )

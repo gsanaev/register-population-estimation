@@ -107,6 +107,32 @@ demographics:
       resident_probability: 0.06
       former_probability: 0.03
 
+
+addresses:
+  n_addresses: 18000
+  municipalities_per_region: 4
+
+  address_type_probabilities:
+    urban:
+      single_family: 0.25
+      multi_family: 0.55
+      large_residential: 0.20
+
+    mixed:
+      single_family: 0.45
+      multi_family: 0.45
+      large_residential: 0.10
+
+    rural:
+      single_family: 0.70
+      multi_family: 0.27
+      large_residential: 0.03
+
+  household_sampling_weights:
+    single_family: 1.0
+    multi_family: 2.5
+    large_residential: 6.0
+
 education:
   truth_seed: 2027
 
