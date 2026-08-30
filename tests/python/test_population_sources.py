@@ -5,6 +5,7 @@ import pandas as pd
 import yaml
 
 from simulation.population_sources import (
+    generate_employment_register,
     generate_population_register,
 )
 from simulation.world import (
@@ -76,6 +77,7 @@ def build_population_inputs():
     return (
         config,
         age_bands,
+        addresses,
         population_truth,
     )
 
@@ -84,6 +86,7 @@ def test_population_register_schema_and_uniqueness() -> None:
     (
         config,
         age_bands,
+        _,
         population_truth,
     ) = build_population_inputs()
 
@@ -126,6 +129,7 @@ def test_population_register_coverage_is_plausible() -> None:
     (
         config,
         age_bands,
+        _,
         population_truth,
     ) = build_population_inputs()
 
@@ -169,6 +173,7 @@ def test_population_register_uses_correct_location_state() -> None:
     (
         config,
         age_bands,
+        _,
         population_truth,
     ) = build_population_inputs()
 
@@ -266,6 +271,7 @@ def test_population_register_dates_and_vocabularies() -> None:
     (
         config,
         age_bands,
+        _,
         population_truth,
     ) = build_population_inputs()
 
@@ -347,6 +353,7 @@ def test_population_register_imperfections_are_plausible() -> None:
     (
         config,
         age_bands,
+        _,
         population_truth,
     ) = build_population_inputs()
 
@@ -414,6 +421,7 @@ def test_population_register_generation_is_reproducible() -> None:
     (
         config,
         age_bands,
+        _,
         population_truth,
     ) = build_population_inputs()
 
@@ -429,6 +437,356 @@ def test_population_register_generation_is_reproducible() -> None:
         age_bands,
         config,
         np.random.default_rng(20264),
+    )
+
+    pd.testing.assert_frame_equal(
+        first,
+        second,
+    )
+
+
+def test_employment_register_schema_and_uniqueness() -> None:
+    (
+        config,
+        _,
+        addresses,
+        population_truth,
+    ) = build_population_inputs()
+
+    employment = generate_employment_register(
+        population_truth,
+        addresses,
+        config,
+        np.random.default_rng(20265),
+        np.random.default_rng(202651),
+    )
+
+    assert list(employment.columns) == [
+        "person_id",
+        "ref_date",
+        "employment_status",
+        "days_employed_last_12m",
+        "annual_employment_income",
+        "contact_address_id",
+    ]
+
+    assert employment["person_id"].is_unique
+
+    assert set(employment["person_id"]).issubset(
+        set(population_truth["person_id"])
+    )
+
+    assert set(
+        employment[
+            "employment_status"
+        ]
+    ).issubset(
+        {
+            "employed",
+            "marginal",
+            "self_employed",
+            "no_record",
+        }
+    )
+
+
+def test_employment_source_presence_differs_from_signal() -> None:
+    (
+        config,
+        _,
+        addresses,
+        population_truth,
+    ) = build_population_inputs()
+
+    employment = generate_employment_register(
+        population_truth,
+        addresses,
+        config,
+        np.random.default_rng(20265),
+        np.random.default_rng(202651),
+    )
+
+    no_record = employment[
+        "employment_status"
+    ].eq("no_record")
+
+    active = ~no_record
+
+    assert no_record.any()
+    assert active.any()
+
+    assert (
+        employment.loc[
+            no_record,
+            "days_employed_last_12m",
+        ]
+        .dropna()
+        .eq(0)
+        .all()
+    )
+
+    assert (
+        employment.loc[
+            no_record,
+            "annual_employment_income",
+        ]
+        .dropna()
+        .eq(0)
+        .all()
+    )
+
+    assert (
+        employment.loc[
+            active,
+            "days_employed_last_12m",
+        ]
+        .dropna()
+        .gt(0)
+        .all()
+    )
+
+    assert (
+        employment.loc[
+            active,
+            "annual_employment_income",
+        ]
+        .dropna()
+        .gt(0)
+        .all()
+    )
+
+
+def test_employment_activity_rates_are_plausible() -> None:
+    (
+        config,
+        _,
+        addresses,
+        population_truth,
+    ) = build_population_inputs()
+
+    employment = generate_employment_register(
+        population_truth,
+        addresses,
+        config,
+        np.random.default_rng(20265),
+        np.random.default_rng(202651),
+    )
+
+    active_ids = set(
+        employment.loc[
+            employment[
+                "employment_status"
+            ].ne("no_record"),
+            "person_id",
+        ]
+    )
+
+    truth = population_truth.copy()
+
+    truth["active"] = truth[
+        "person_id"
+    ].isin(active_ids)
+
+    groups = {
+        "resident_18_24": (
+            (truth["true_resident"] == 1)
+            & truth["age"].between(18, 24)
+        ),
+        "resident_25_39": (
+            (truth["true_resident"] == 1)
+            & truth["age"].between(25, 39)
+        ),
+        "resident_40_64": (
+            (truth["true_resident"] == 1)
+            & truth["age"].between(40, 64)
+        ),
+        "resident_65_67": (
+            (truth["true_resident"] == 1)
+            & truth["age"].between(65, 67)
+        ),
+        "nonresident_18_67": (
+            (truth["true_resident"] == 0)
+            & truth["age"].between(18, 67)
+        ),
+    }
+
+    expected = {
+        "resident_18_24": 0.48,
+        "resident_25_39": 0.78,
+        "resident_40_64": 0.73,
+        "resident_65_67": 0.18,
+        "nonresident_18_67": 0.05,
+    }
+
+    tolerance = {
+        "resident_18_24": 0.03,
+        "resident_25_39": 0.02,
+        "resident_40_64": 0.02,
+        "resident_65_67": 0.05,
+        "nonresident_18_67": 0.025,
+    }
+
+    for name, mask in groups.items():
+        realised = truth.loc[
+            mask,
+            "active",
+        ].mean()
+
+        assert abs(
+            realised
+            - expected[name]
+        ) < tolerance[name]
+
+    outside_eligible = ~truth[
+        "age"
+    ].between(18, 67)
+
+    assert not truth.loc[
+        outside_eligible,
+        "active",
+    ].any()
+
+
+def test_employment_status_and_amounts_are_plausible() -> None:
+    (
+        config,
+        _,
+        addresses,
+        population_truth,
+    ) = build_population_inputs()
+
+    employment = generate_employment_register(
+        population_truth,
+        addresses,
+        config,
+        np.random.default_rng(20265),
+        np.random.default_rng(202651),
+    )
+
+    active = employment[
+        employment[
+            "employment_status"
+        ].ne("no_record")
+    ]
+
+    status_shares = (
+        active[
+            "employment_status"
+        ]
+        .value_counts(normalize=True)
+    )
+
+    assert abs(
+        status_shares["employed"]
+        - 0.78
+    ) < 0.02
+
+    assert abs(
+        status_shares["marginal"]
+        - 0.12
+    ) < 0.015
+
+    assert abs(
+        status_shares["self_employed"]
+        - 0.10
+    ) < 0.015
+
+    limits = {
+        "employed": (20, 365),
+        "marginal": (5, 250),
+        "self_employed": (30, 365),
+    }
+
+    for status, (
+        minimum,
+        maximum,
+    ) in limits.items():
+        values = active.loc[
+            active[
+                "employment_status"
+            ].eq(status),
+            "days_employed_last_12m",
+        ].dropna()
+
+        assert values.between(
+            minimum,
+            maximum,
+        ).all()
+
+    assert abs(
+        employment[
+            "days_employed_last_12m"
+        ].isna().mean()
+        - 0.01
+    ) < 0.003
+
+    assert abs(
+        employment[
+            "annual_employment_income"
+        ].isna().mean()
+        - 0.01
+    ) < 0.003
+
+
+def test_employment_contact_addresses_are_valid() -> None:
+    (
+        config,
+        _,
+        addresses,
+        population_truth,
+    ) = build_population_inputs()
+
+    employment = generate_employment_register(
+        population_truth,
+        addresses,
+        config,
+        np.random.default_rng(20265),
+        np.random.default_rng(202651),
+    )
+
+    valid_addresses = set(
+        addresses["address_id"]
+    )
+
+    nonmissing_contacts = employment[
+        "contact_address_id"
+    ].dropna()
+
+    assert set(
+        nonmissing_contacts
+    ).issubset(valid_addresses)
+
+    missing_share = employment[
+        "contact_address_id"
+    ].isna().mean()
+
+    assert abs(
+        missing_share - 0.03
+    ) < 0.005
+
+
+def test_employment_generation_is_reproducible() -> None:
+    (
+        config,
+        _,
+        addresses,
+        population_truth,
+    ) = build_population_inputs()
+
+    first = generate_employment_register(
+        population_truth,
+        addresses,
+        config,
+        np.random.default_rng(20265),
+        np.random.default_rng(202651),
+    )
+
+    second = generate_employment_register(
+        population_truth,
+        addresses,
+        config,
+        np.random.default_rng(20265),
+        np.random.default_rng(202651),
     )
 
     pd.testing.assert_frame_equal(

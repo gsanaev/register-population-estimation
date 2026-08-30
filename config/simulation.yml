@@ -37,6 +37,65 @@ population_register:
     age_outlier_min: 97
     age_outlier_max: 110
 
+
+employment:
+  reference_date: "2025-12-31"
+  eligible_age_min: 18
+  eligible_age_max: 67
+
+  active_probabilities:
+    nonresident: 0.05
+    resident_18_24: 0.48
+    resident_25_39: 0.78
+    resident_40_64: 0.73
+    resident_65_67: 0.18
+    fallback: 0.02
+
+  status_probabilities:
+    employed: 0.78
+    marginal: 0.12
+    self_employed: 0.10
+
+  days_employed:
+    employed:
+      mean: 290
+      sd: 60
+      min: 20
+      max: 365
+
+    marginal:
+      mean: 110
+      sd: 40
+      min: 5
+      max: 250
+
+    self_employed:
+      mean: 250
+      sd: 80
+      min: 30
+      max: 365
+
+  annual_income:
+    employed:
+      log_mean: 10.2
+      log_sd: 0.45
+
+    marginal:
+      log_mean: 8.5
+      log_sd: 0.35
+
+    self_employed:
+      log_mean: 10.0
+      log_sd: 0.70
+
+  no_record_retention_probability: 0.02
+  missing_days_probability: 0.01
+  missing_income_probability: 0.01
+
+contact_address:
+  reference_probability: 0.94
+  alternative_same_region_probability: 0.03
+
 regions:
   - region_code: R01
     region_name: "North City"

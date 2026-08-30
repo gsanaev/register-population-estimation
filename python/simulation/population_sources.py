@@ -29,6 +29,22 @@ POPULATION_REGISTER_COLUMNS = [
     "last_move_date",
 ]
 
+
+EMPLOYMENT_STATUS_CATEGORIES = (
+    "employed",
+    "marginal",
+    "self_employed",
+)
+
+EMPLOYMENT_REGISTER_COLUMNS = [
+    "person_id",
+    "ref_date",
+    "employment_status",
+    "days_employed_last_12m",
+    "annual_employment_income",
+    "contact_address_id",
+]
+
 POPULATION_TRUTH_REQUIRED_COLUMNS = {
     "person_id",
     "true_resident",
@@ -535,4 +551,613 @@ def generate_population_register(
 
     return population_register[
         POPULATION_REGISTER_COLUMNS
+    ]
+
+
+def generate_contact_addresses(
+    source_population: pd.DataFrame,
+    address_register: pd.DataFrame,
+    config: Mapping[str, Any],
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Generate imperfect source-specific contact addresses."""
+
+    required_population_columns = {
+        "true_resident",
+        "true_address_id",
+        "true_region_code",
+        "former_address_id",
+        "former_region_code",
+    }
+
+    missing_columns = (
+        required_population_columns
+        - set(source_population.columns)
+    )
+
+    if missing_columns:
+        raise ValueError(
+            "Source population is missing contact-address fields: "
+            + ", ".join(sorted(missing_columns))
+        )
+
+    required_address_columns = {
+        "address_id",
+        "region_code",
+    }
+
+    if not required_address_columns.issubset(
+        address_register.columns
+    ):
+        raise ValueError(
+            "Address register is missing required contact-address fields."
+        )
+
+    if address_register["address_id"].duplicated().any():
+        raise ValueError(
+            "Address register contains duplicated address IDs."
+        )
+
+    contact_config = config.get(
+        "contact_address"
+    )
+
+    if not isinstance(contact_config, Mapping):
+        raise ValueError(
+            "Configuration must contain a contact_address section."
+        )
+
+    reference_probability = _validate_probability(
+        contact_config.get(
+            "reference_probability"
+        ),
+        "reference_probability",
+    )
+
+    alternative_probability = _validate_probability(
+        contact_config.get(
+            "alternative_same_region_probability"
+        ),
+        "alternative_same_region_probability",
+    )
+
+    if (
+        reference_probability
+        + alternative_probability
+        > 1.0
+    ):
+        raise ValueError(
+            "Contact-address probabilities must not exceed 1."
+        )
+
+    n_records = len(source_population)
+
+    if n_records == 0:
+        return np.empty(
+            0,
+            dtype=object,
+        )
+
+    is_current = (
+        source_population[
+            "true_resident"
+        ].to_numpy(dtype=np.int64)
+        == 1
+    )
+
+    reference_address = (
+        source_population[
+            "former_address_id"
+        ].copy()
+    )
+
+    reference_address.loc[
+        is_current
+    ] = source_population.loc[
+        is_current,
+        "true_address_id",
+    ]
+
+    reference_region = (
+        source_population[
+            "former_region_code"
+        ].copy()
+    )
+
+    reference_region.loc[
+        is_current
+    ] = source_population.loc[
+        is_current,
+        "true_region_code",
+    ]
+
+    if (
+        reference_address.isna().any()
+        or reference_region.isna().any()
+    ):
+        raise ValueError(
+            "Reference contact geography is incomplete."
+        )
+
+    addresses_by_region = {
+        region_code: group[
+            "address_id"
+        ].to_numpy(dtype=object)
+        for region_code, group in (
+            address_register.groupby(
+                "region_code",
+                sort=False,
+            )
+        )
+    }
+
+    contact_draw = rng.random(
+        n_records
+    )
+
+    use_reference = (
+        contact_draw
+        < reference_probability
+    )
+
+    use_alternative = (
+        (contact_draw >= reference_probability)
+        & (
+            contact_draw
+            < (
+                reference_probability
+                + alternative_probability
+            )
+        )
+    )
+
+    contact_addresses = np.full(
+        n_records,
+        pd.NA,
+        dtype=object,
+    )
+
+    contact_addresses[
+        use_reference
+    ] = reference_address.loc[
+        use_reference
+    ].to_numpy(dtype=object)
+
+    alternative_positions = np.flatnonzero(
+        use_alternative
+    )
+
+    for position in alternative_positions:
+        region_code = reference_region.iloc[
+            position
+        ]
+        current_address = reference_address.iloc[
+            position
+        ]
+
+        region_addresses = addresses_by_region.get(
+            region_code
+        )
+
+        if region_addresses is None:
+            raise ValueError(
+                "No addresses available for contact-address region."
+            )
+
+        alternatives = region_addresses[
+            region_addresses != current_address
+        ]
+
+        if len(alternatives) == 0:
+            contact_addresses[position] = (
+                current_address
+            )
+        else:
+            contact_addresses[position] = (
+                rng.choice(alternatives)
+            )
+
+    return contact_addresses
+
+
+def generate_employment_register(
+    population_truth: pd.DataFrame,
+    address_register: pd.DataFrame,
+    config: Mapping[str, Any],
+    rng: np.random.Generator,
+    contact_rng: np.random.Generator,
+) -> pd.DataFrame:
+    """Generate an imperfect employment-register delivery."""
+
+    required_columns = (
+        POPULATION_TRUTH_REQUIRED_COLUMNS
+        | {
+            "age",
+        }
+    )
+
+    missing_columns = (
+        required_columns
+        - set(population_truth.columns)
+    )
+
+    if missing_columns:
+        raise ValueError(
+            "Population truth is missing employment fields: "
+            + ", ".join(sorted(missing_columns))
+        )
+
+    if population_truth["person_id"].duplicated().any():
+        raise ValueError(
+            "Population truth contains duplicated person IDs."
+        )
+
+    employment_config = config.get(
+        "employment"
+    )
+
+    if not isinstance(employment_config, Mapping):
+        raise ValueError(
+            "Configuration must contain an employment section."
+        )
+
+    eligible_age_min = employment_config.get(
+        "eligible_age_min"
+    )
+    eligible_age_max = employment_config.get(
+        "eligible_age_max"
+    )
+
+    if (
+        not isinstance(eligible_age_min, int)
+        or not isinstance(eligible_age_max, int)
+        or eligible_age_min < 0
+        or eligible_age_max < eligible_age_min
+    ):
+        raise ValueError(
+            "Employment eligibility ages are invalid."
+        )
+
+    active_config = employment_config.get(
+        "active_probabilities"
+    )
+
+    if not isinstance(active_config, Mapping):
+        raise ValueError(
+            "employment must define active_probabilities."
+        )
+
+    active_probabilities = {
+        name: _validate_probability(
+            active_config.get(name),
+            name,
+        )
+        for name in (
+            "nonresident",
+            "resident_18_24",
+            "resident_25_39",
+            "resident_40_64",
+            "resident_65_67",
+            "fallback",
+        )
+    }
+
+    status_probabilities = (
+        _validated_probability_vector(
+            employment_config.get(
+                "status_probabilities"
+            ),
+            EMPLOYMENT_STATUS_CATEGORIES,
+            "employment status probabilities",
+        )
+    )
+
+    no_record_retention_probability = (
+        _validate_probability(
+            employment_config.get(
+                "no_record_retention_probability"
+            ),
+            "no_record_retention_probability",
+        )
+    )
+
+    missing_days_probability = (
+        _validate_probability(
+            employment_config.get(
+                "missing_days_probability"
+            ),
+            "missing_days_probability",
+        )
+    )
+
+    missing_income_probability = (
+        _validate_probability(
+            employment_config.get(
+                "missing_income_probability"
+            ),
+            "missing_income_probability",
+        )
+    )
+
+    ages = population_truth[
+        "age"
+    ].to_numpy(dtype=np.int64)
+
+    true_resident = population_truth[
+        "true_resident"
+    ].to_numpy(dtype=np.int64)
+
+    eligible = (
+        (ages >= eligible_age_min)
+        & (ages <= eligible_age_max)
+    )
+
+    active_probability = np.full(
+        len(population_truth),
+        active_probabilities["fallback"],
+        dtype=float,
+    )
+
+    active_probability[
+        true_resident == 0
+    ] = active_probabilities[
+        "nonresident"
+    ]
+
+    resident = (
+        true_resident == 1
+    )
+
+    active_probability[
+        resident
+        & (ages >= 18)
+        & (ages <= 24)
+    ] = active_probabilities[
+        "resident_18_24"
+    ]
+
+    active_probability[
+        resident
+        & (ages >= 25)
+        & (ages <= 39)
+    ] = active_probabilities[
+        "resident_25_39"
+    ]
+
+    active_probability[
+        resident
+        & (ages >= 40)
+        & (ages <= 64)
+    ] = active_probabilities[
+        "resident_40_64"
+    ]
+
+    active_probability[
+        resident
+        & (ages >= 65)
+        & (ages <= 67)
+    ] = active_probabilities[
+        "resident_65_67"
+    ]
+
+    active = (
+        eligible
+        & (
+            rng.random(
+                len(population_truth)
+            )
+            < active_probability
+        )
+    )
+
+    employment_status = np.full(
+        len(population_truth),
+        "no_record",
+        dtype=object,
+    )
+
+    n_active = int(
+        active.sum()
+    )
+
+    employment_status[
+        active
+    ] = rng.choice(
+        EMPLOYMENT_STATUS_CATEGORIES,
+        size=n_active,
+        replace=True,
+        p=status_probabilities,
+    )
+
+    days = np.zeros(
+        len(population_truth),
+        dtype=float,
+    )
+
+    income = np.zeros(
+        len(population_truth),
+        dtype=float,
+    )
+
+    days_config = employment_config.get(
+        "days_employed"
+    )
+    income_config = employment_config.get(
+        "annual_income"
+    )
+
+    if (
+        not isinstance(days_config, Mapping)
+        or not isinstance(income_config, Mapping)
+    ):
+        raise ValueError(
+            "Employment amount configurations are missing."
+        )
+
+    for status in EMPLOYMENT_STATUS_CATEGORIES:
+        selected = (
+            employment_status == status
+        )
+
+        n_selected = int(
+            selected.sum()
+        )
+
+        if n_selected == 0:
+            continue
+
+        status_days = days_config.get(
+            status
+        )
+        status_income = income_config.get(
+            status
+        )
+
+        if (
+            not isinstance(status_days, Mapping)
+            or not isinstance(status_income, Mapping)
+        ):
+            raise ValueError(
+                f"Employment parameters missing for {status}."
+            )
+
+        mean_days = float(
+            status_days["mean"]
+        )
+        sd_days = float(
+            status_days["sd"]
+        )
+        min_days = int(
+            status_days["min"]
+        )
+        max_days = int(
+            status_days["max"]
+        )
+
+        sampled_days = np.rint(
+            rng.normal(
+                mean_days,
+                sd_days,
+                size=n_selected,
+            )
+        )
+
+        days[
+            selected
+        ] = np.clip(
+            sampled_days,
+            min_days,
+            max_days,
+        )
+
+        income[
+            selected
+        ] = np.round(
+            rng.lognormal(
+                mean=float(
+                    status_income[
+                        "log_mean"
+                    ]
+                ),
+                sigma=float(
+                    status_income[
+                        "log_sd"
+                    ]
+                ),
+                size=n_selected,
+            ),
+            2,
+        )
+
+    keep = (
+        active
+        | (
+            rng.random(
+                len(population_truth)
+            )
+            < no_record_retention_probability
+        )
+    )
+
+    source_population = (
+        population_truth.loc[
+            keep
+        ]
+        .reset_index(drop=True)
+        .copy()
+    )
+
+    source_status = employment_status[
+        keep
+    ]
+    source_days = days[
+        keep
+    ].copy()
+    source_income = income[
+        keep
+    ].copy()
+
+    n_source_records = len(
+        source_population
+    )
+
+    days_missing = (
+        rng.random(n_source_records)
+        < missing_days_probability
+    )
+
+    income_missing = (
+        rng.random(n_source_records)
+        < missing_income_probability
+    )
+
+    source_days[
+        days_missing
+    ] = np.nan
+
+    source_income[
+        income_missing
+    ] = np.nan
+
+    contact_address_id = (
+        generate_contact_addresses(
+            source_population,
+            address_register,
+            config,
+            contact_rng,
+        )
+    )
+
+    employment_register = pd.DataFrame(
+        {
+            "person_id":
+                source_population[
+                    "person_id"
+                ].to_numpy(dtype=object),
+            "ref_date":
+                pd.Timestamp(
+                    employment_config.get(
+                        "reference_date"
+                    )
+                ),
+            "employment_status":
+                source_status,
+            "days_employed_last_12m":
+                source_days,
+            "annual_employment_income":
+                source_income,
+            "contact_address_id":
+                contact_address_id,
+        }
+    )
+
+    if employment_register[
+        "person_id"
+    ].duplicated().any():
+        raise RuntimeError(
+            "Employment register contains duplicated person IDs."
+        )
+
+    return employment_register[
+        EMPLOYMENT_REGISTER_COLUMNS
     ]
