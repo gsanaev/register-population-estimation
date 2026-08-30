@@ -5,6 +5,7 @@ import pandas as pd
 import yaml
 
 from simulation.population_sources import (
+    generate_education_register,
     generate_employment_register,
     generate_population_register,
     generate_tax_register,
@@ -1094,6 +1095,344 @@ def test_tax_generation_is_reproducible() -> None:
         config,
         np.random.default_rng(20266),
         np.random.default_rng(202661),
+    )
+
+    pd.testing.assert_frame_equal(
+        first,
+        second,
+    )
+
+
+def test_education_register_schema_and_uniqueness() -> None:
+    (
+        config,
+        _,
+        addresses,
+        population_truth,
+    ) = build_population_inputs()
+
+    education = generate_education_register(
+        population_truth,
+        addresses,
+        config,
+        np.random.default_rng(20267),
+        np.random.default_rng(202671),
+    )
+
+    assert list(education.columns) == [
+        "person_id",
+        "school_year",
+        "enrolment_flag",
+        "institution_type",
+        "contact_address_id",
+    ]
+
+    assert education["person_id"].is_unique
+
+    assert set(education["person_id"]).issubset(
+        set(population_truth["person_id"])
+    )
+
+    assert (
+        education["school_year"]
+        == "2025/2026"
+    ).all()
+
+    assert (
+        education["enrolment_flag"]
+        == 1
+    ).all()
+
+
+def test_education_enrolment_rates_are_plausible() -> None:
+    (
+        config,
+        _,
+        addresses,
+        population_truth,
+    ) = build_population_inputs()
+
+    education = generate_education_register(
+        population_truth,
+        addresses,
+        config,
+        np.random.default_rng(20267),
+        np.random.default_rng(202671),
+    )
+
+    observed_ids = set(
+        education["person_id"]
+    )
+
+    truth = population_truth.copy()
+
+    truth["enrolled"] = truth[
+        "person_id"
+    ].isin(observed_ids)
+
+    groups = {
+        "resident_6_15": (
+            (truth["true_resident"] == 1)
+            & truth["age"].between(6, 15)
+        ),
+        "resident_16_17": (
+            (truth["true_resident"] == 1)
+            & truth["age"].between(16, 17)
+        ),
+        "resident_18_24": (
+            (truth["true_resident"] == 1)
+            & truth["age"].between(18, 24)
+        ),
+        "resident_25_30": (
+            (truth["true_resident"] == 1)
+            & truth["age"].between(25, 30)
+        ),
+        "resident_fallback": (
+            (truth["true_resident"] == 1)
+            & ~truth["age"].between(6, 30)
+        ),
+        "nonresident": (
+            truth["true_resident"] == 0
+        ),
+    }
+
+    expected = {
+        "resident_6_15": 0.96,
+        "resident_16_17": 0.90,
+        "resident_18_24": 0.42,
+        "resident_25_30": 0.08,
+        "resident_fallback": 0.01,
+        "nonresident": 0.02,
+    }
+
+    tolerance = {
+        "resident_6_15": 0.015,
+        "resident_16_17": 0.03,
+        "resident_18_24": 0.025,
+        "resident_25_30": 0.025,
+        "resident_fallback": 0.004,
+        "nonresident": 0.015,
+    }
+
+    for name, mask in groups.items():
+        realised = truth.loc[
+            mask,
+            "enrolled",
+        ].mean()
+
+        assert abs(
+            realised
+            - expected[name]
+        ) < tolerance[name]
+
+
+def test_education_institution_types_follow_age_rules() -> None:
+    (
+        config,
+        _,
+        addresses,
+        population_truth,
+    ) = build_population_inputs()
+
+    education = generate_education_register(
+        population_truth,
+        addresses,
+        config,
+        np.random.default_rng(20267),
+        np.random.default_rng(202671),
+    )
+
+    checked = education.merge(
+        population_truth[
+            [
+                "person_id",
+                "age",
+            ]
+        ],
+        on="person_id",
+        how="left",
+        validate="one_to_one",
+    )
+
+    school_age = checked[
+        "age"
+    ].between(6, 17)
+
+    adult_age = checked[
+        "age"
+    ].between(18, 30)
+
+    outside = ~(
+        school_age
+        | adult_age
+    )
+
+    assert set(
+        checked.loc[
+            school_age,
+            "institution_type",
+        ].dropna()
+    ).issubset(
+        {
+            "school",
+            "vocational_school",
+        }
+    )
+
+    assert set(
+        checked.loc[
+            adult_age,
+            "institution_type",
+        ].dropna()
+    ).issubset(
+        {
+            "university",
+            "vocational_school",
+        }
+    )
+
+    assert checked.loc[
+        outside,
+        "institution_type",
+    ].isna().all()
+
+
+def test_education_institution_shares_are_plausible() -> None:
+    (
+        config,
+        _,
+        addresses,
+        population_truth,
+    ) = build_population_inputs()
+
+    education = generate_education_register(
+        population_truth,
+        addresses,
+        config,
+        np.random.default_rng(20267),
+        np.random.default_rng(202671),
+    )
+
+    checked = education.merge(
+        population_truth[
+            [
+                "person_id",
+                "age",
+            ]
+        ],
+        on="person_id",
+        how="left",
+        validate="one_to_one",
+    )
+
+    school_age = checked.loc[
+        checked["age"].between(6, 17)
+    ]
+
+    school_nonmissing = school_age[
+        "institution_type"
+    ].dropna()
+
+    school_share = (
+        school_nonmissing
+        .eq("school")
+        .mean()
+    )
+
+    assert abs(
+        school_share - 0.88
+    ) < 0.025
+
+    adult_age = checked.loc[
+        checked["age"].between(18, 30)
+    ]
+
+    adult_nonmissing = adult_age[
+        "institution_type"
+    ].dropna()
+
+    university_share = (
+        adult_nonmissing
+        .eq("university")
+        .mean()
+    )
+
+    assert abs(
+        university_share - 0.70
+    ) < 0.03
+
+    in_range = checked[
+        checked["age"].between(6, 30)
+    ]
+
+    missing_share = (
+        in_range[
+            "institution_type"
+        ].isna().mean()
+    )
+
+    assert abs(
+        missing_share - 0.01
+    ) < 0.004
+
+
+def test_education_contact_addresses_are_valid() -> None:
+    (
+        config,
+        _,
+        addresses,
+        population_truth,
+    ) = build_population_inputs()
+
+    education = generate_education_register(
+        population_truth,
+        addresses,
+        config,
+        np.random.default_rng(20267),
+        np.random.default_rng(202671),
+    )
+
+    valid_addresses = set(
+        addresses["address_id"]
+    )
+
+    assert set(
+        education[
+            "contact_address_id"
+        ].dropna()
+    ).issubset(valid_addresses)
+
+    missing_share = education[
+        "contact_address_id"
+    ].isna().mean()
+
+    assert abs(
+        missing_share - 0.03
+    ) < 0.006
+
+
+def test_education_generation_is_reproducible() -> None:
+    (
+        config,
+        _,
+        addresses,
+        population_truth,
+    ) = build_population_inputs()
+
+    first = generate_education_register(
+        population_truth,
+        addresses,
+        config,
+        np.random.default_rng(20267),
+        np.random.default_rng(202671),
+    )
+
+    second = generate_education_register(
+        population_truth,
+        addresses,
+        config,
+        np.random.default_rng(20267),
+        np.random.default_rng(202671),
     )
 
     pd.testing.assert_frame_equal(

@@ -54,6 +54,15 @@ TAX_REGISTER_COLUMNS = [
     "contact_address_id",
 ]
 
+
+EDUCATION_REGISTER_COLUMNS = [
+    "person_id",
+    "school_year",
+    "enrolment_flag",
+    "institution_type",
+    "contact_address_id",
+]
+
 POPULATION_TRUTH_REQUIRED_COLUMNS = {
     "person_id",
     "true_resident",
@@ -1526,4 +1535,311 @@ def generate_tax_register(
 
     return tax_register[
         TAX_REGISTER_COLUMNS
+    ]
+
+
+def generate_education_register(
+    population_truth: pd.DataFrame,
+    address_register: pd.DataFrame,
+    config: Mapping[str, Any],
+    rng: np.random.Generator,
+    contact_rng: np.random.Generator,
+) -> pd.DataFrame:
+    """Generate a synthetic educational-participation register."""
+
+    required_columns = (
+        POPULATION_TRUTH_REQUIRED_COLUMNS
+        | {
+            "age",
+        }
+    )
+
+    missing_columns = (
+        required_columns
+        - set(population_truth.columns)
+    )
+
+    if missing_columns:
+        raise ValueError(
+            "Population truth is missing education-participation fields: "
+            + ", ".join(sorted(missing_columns))
+        )
+
+    if population_truth["person_id"].duplicated().any():
+        raise ValueError(
+            "Population truth contains duplicated person IDs."
+        )
+
+    education_config = config.get(
+        "education_participation"
+    )
+
+    if not isinstance(education_config, Mapping):
+        raise ValueError(
+            "Configuration must contain "
+            "an education_participation section."
+        )
+
+    school_year = education_config.get(
+        "school_year"
+    )
+
+    if not isinstance(school_year, str) or not school_year:
+        raise ValueError(
+            "education_participation.school_year "
+            "must be a non-empty string."
+        )
+
+    enrolment_config = education_config.get(
+        "enrolment_probabilities"
+    )
+
+    if not isinstance(enrolment_config, Mapping):
+        raise ValueError(
+            "education_participation must define "
+            "enrolment_probabilities."
+        )
+
+    enrolment_probabilities = {
+        name: _validate_probability(
+            enrolment_config.get(name),
+            name,
+        )
+        for name in (
+            "nonresident",
+            "resident_6_15",
+            "resident_16_17",
+            "resident_18_24",
+            "resident_25_30",
+            "fallback",
+        )
+    }
+
+    institution_config = education_config.get(
+        "institution_probabilities"
+    )
+
+    if not isinstance(institution_config, Mapping):
+        raise ValueError(
+            "education_participation must define "
+            "institution_probabilities."
+        )
+
+    school_probabilities = (
+        _validated_probability_vector(
+            institution_config.get(
+                "age_6_17"
+            ),
+            (
+                "school",
+                "vocational_school",
+            ),
+            "age_6_17 institution probabilities",
+        )
+    )
+
+    adult_probabilities = (
+        _validated_probability_vector(
+            institution_config.get(
+                "age_18_30"
+            ),
+            (
+                "university",
+                "vocational_school",
+            ),
+            "age_18_30 institution probabilities",
+        )
+    )
+
+    missing_institution_probability = (
+        _validate_probability(
+            education_config.get(
+                "missing_institution_probability"
+            ),
+            "missing_institution_probability",
+        )
+    )
+
+    ages = population_truth[
+        "age"
+    ].to_numpy(dtype=np.int64)
+
+    true_resident = population_truth[
+        "true_resident"
+    ].to_numpy(dtype=np.int64)
+
+    enrolment_probability = np.full(
+        len(population_truth),
+        enrolment_probabilities["fallback"],
+        dtype=float,
+    )
+
+    enrolment_probability[
+        true_resident == 0
+    ] = enrolment_probabilities[
+        "nonresident"
+    ]
+
+    resident = (
+        true_resident == 1
+    )
+
+    enrolment_probability[
+        resident
+        & (ages >= 6)
+        & (ages <= 15)
+    ] = enrolment_probabilities[
+        "resident_6_15"
+    ]
+
+    enrolment_probability[
+        resident
+        & (ages >= 16)
+        & (ages <= 17)
+    ] = enrolment_probabilities[
+        "resident_16_17"
+    ]
+
+    enrolment_probability[
+        resident
+        & (ages >= 18)
+        & (ages <= 24)
+    ] = enrolment_probabilities[
+        "resident_18_24"
+    ]
+
+    enrolment_probability[
+        resident
+        & (ages >= 25)
+        & (ages <= 30)
+    ] = enrolment_probabilities[
+        "resident_25_30"
+    ]
+
+    enrolled = (
+        rng.random(
+            len(population_truth)
+        )
+        < enrolment_probability
+    )
+
+    source_population = (
+        population_truth.loc[
+            enrolled
+        ]
+        .reset_index(drop=True)
+        .copy()
+    )
+
+    source_ages = source_population[
+        "age"
+    ].to_numpy(dtype=np.int64)
+
+    n_source_records = len(
+        source_population
+    )
+
+    institution_type = np.full(
+        n_source_records,
+        pd.NA,
+        dtype=object,
+    )
+
+    school_age = (
+        (source_ages >= 6)
+        & (source_ages <= 17)
+    )
+
+    n_school_age = int(
+        school_age.sum()
+    )
+
+    if n_school_age > 0:
+        institution_type[
+            school_age
+        ] = rng.choice(
+            (
+                "school",
+                "vocational_school",
+            ),
+            size=n_school_age,
+            replace=True,
+            p=school_probabilities,
+        )
+
+    adult_age = (
+        (source_ages >= 18)
+        & (source_ages <= 30)
+    )
+
+    n_adult_age = int(
+        adult_age.sum()
+    )
+
+    if n_adult_age > 0:
+        institution_type[
+            adult_age
+        ] = rng.choice(
+            (
+                "university",
+                "vocational_school",
+            ),
+            size=n_adult_age,
+            replace=True,
+            p=adult_probabilities,
+        )
+
+    institution_missing = (
+        rng.random(
+            n_source_records
+        )
+        < missing_institution_probability
+    )
+
+    institution_type[
+        institution_missing
+    ] = pd.NA
+
+    contact_address_id = (
+        generate_contact_addresses(
+            source_population,
+            address_register,
+            config,
+            contact_rng,
+        )
+    )
+
+    education_register = pd.DataFrame(
+        {
+            "person_id":
+                source_population[
+                    "person_id"
+                ].to_numpy(dtype=object),
+            "school_year":
+                np.full(
+                    n_source_records,
+                    school_year,
+                    dtype=object,
+                ),
+            "enrolment_flag":
+                np.ones(
+                    n_source_records,
+                    dtype=np.int64,
+                ),
+            "institution_type":
+                institution_type,
+            "contact_address_id":
+                contact_address_id,
+        }
+    )
+
+    if education_register[
+        "person_id"
+    ].duplicated().any():
+        raise RuntimeError(
+            "Education register contains duplicated person IDs."
+        )
+
+    return education_register[
+        EDUCATION_REGISTER_COLUMNS
     ]

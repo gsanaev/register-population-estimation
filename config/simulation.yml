@@ -93,6 +93,29 @@ employment:
   missing_income_probability: 0.01
 
 
+
+education_participation:
+  school_year: "2025/2026"
+
+  enrolment_probabilities:
+    nonresident: 0.02
+    resident_6_15: 0.96
+    resident_16_17: 0.90
+    resident_18_24: 0.42
+    resident_25_30: 0.08
+    fallback: 0.01
+
+  institution_probabilities:
+    age_6_17:
+      school: 0.88
+      vocational_school: 0.12
+
+    age_18_30:
+      university: 0.70
+      vocational_school: 0.30
+
+  missing_institution_probability: 0.01
+
 tax:
   tax_year: 2025
 
