@@ -26,6 +26,22 @@ BA_QUALIFICATION_GROUPS = (
     "HIGHER_ED",
 )
 
+
+MIKROZENSUS_2024_COLUMNS = [
+    "person_id",
+    "survey_year",
+    "education_code",
+]
+
+MIKROZENSUS_EDUCATION_CODES = (
+    "E1",
+    "E2",
+    "E3",
+    "E4",
+    "E5",
+    "E6",
+)
+
 ZENSUS_TRUTH_REQUIRED_COLUMNS = {
     "person_id",
     "reference_year",
@@ -1366,4 +1382,475 @@ def generate_ba_2024_delivery(
 
     return delivery[
         BA_2024_COLUMNS
+    ]
+
+
+def generate_mikrozensus_2024_delivery(
+    education_truth: pd.DataFrame,
+    config: Mapping[str, Any],
+    rng: np.random.Generator,
+) -> pd.DataFrame:
+    """Generate the detailed synthetic Mikrozensus-like 2024 delivery."""
+
+    missing_columns = (
+        ZENSUS_TRUTH_REQUIRED_COLUMNS
+        - set(education_truth.columns)
+    )
+
+    if missing_columns:
+        raise ValueError(
+            "Education truth is missing Mikrozensus fields: "
+            + ", ".join(
+                sorted(missing_columns)
+            )
+        )
+
+    if education_truth.duplicated(
+        subset=[
+            "person_id",
+            "reference_year",
+        ]
+    ).any():
+        raise ValueError(
+            "Education truth contains duplicated person-year records."
+        )
+
+    source_config = _get_source_config(
+        config,
+        "mikrozensus_2024",
+    )
+
+    survey_year = source_config.get(
+        "survey_year"
+    )
+
+    invalid_survey_year = (
+        source_config.get(
+            "invalid_survey_year"
+        )
+    )
+
+    if (
+        not isinstance(
+            survey_year,
+            int,
+        )
+        or not isinstance(
+            invalid_survey_year,
+            int,
+        )
+    ):
+        raise ValueError(
+            "Mikrozensus survey years must be integers."
+        )
+
+    coverage = _validate_probability(
+        source_config.get(
+            "coverage"
+        ),
+        "Mikrozensus coverage",
+    )
+
+    rates = {
+        "measurement_error":
+            _validate_probability(
+                source_config.get(
+                    "measurement_error_rate"
+                ),
+                "Mikrozensus measurement_error_rate",
+            ),
+        "missing_code":
+            _validate_probability(
+                source_config.get(
+                    "missing_code_rate"
+                ),
+                "Mikrozensus missing_code_rate",
+            ),
+        "unknown_code":
+            _validate_probability(
+                source_config.get(
+                    "unknown_code_rate"
+                ),
+                "Mikrozensus unknown_code_rate",
+            ),
+        "invalid_year":
+            _validate_probability(
+                source_config.get(
+                    "invalid_year_rate"
+                ),
+                "Mikrozensus invalid_year_rate",
+            ),
+        "missing_person_id":
+            _validate_probability(
+                source_config.get(
+                    "missing_person_id_rate"
+                ),
+                "Mikrozensus missing_person_id_rate",
+            ),
+        "duplicate_records":
+            _validate_probability(
+                source_config.get(
+                    "duplicate_rate"
+                ),
+                "Mikrozensus duplicate_rate",
+            ),
+    }
+
+    configured_codes = tuple(
+        source_config.get(
+            "education_codes",
+            (),
+        )
+    )
+
+    if (
+        configured_codes
+        != MIKROZENSUS_EDUCATION_CODES
+    ):
+        raise ValueError(
+            "Mikrozensus education_codes must be E1 through E6."
+        )
+
+    truth_2024 = (
+        education_truth.loc[
+            education_truth[
+                "reference_year"
+            ].eq(survey_year)
+        ]
+        .sort_values(
+            "person_id",
+            kind="mergesort",
+        )
+        .reset_index(drop=True)
+        .copy()
+    )
+
+    if truth_2024.empty:
+        raise ValueError(
+            "Education truth contains no "
+            "Mikrozensus survey-year rows."
+        )
+
+    if truth_2024[
+        "person_id"
+    ].isna().any():
+        raise ValueError(
+            "Mikrozensus truth contains missing person IDs."
+        )
+
+    if truth_2024[
+        "person_id"
+    ].duplicated().any():
+        raise ValueError(
+            "Mikrozensus truth contains duplicated person IDs."
+        )
+
+    true_levels_all = truth_2024[
+        "true_attainment_level"
+    ].to_numpy(
+        dtype=np.int64
+    )
+
+    if (
+        np.any(true_levels_all < 1)
+        or np.any(true_levels_all > 6)
+    ):
+        raise ValueError(
+            "Mikrozensus truth contains invalid attainment levels."
+        )
+
+    n_base = int(
+        np.floor(
+            len(truth_2024)
+            * coverage
+        )
+    )
+
+    if n_base <= 0:
+        raise ValueError(
+            "Mikrozensus coverage produces no source records."
+        )
+
+    sampled_positions = rng.choice(
+        len(truth_2024),
+        size=n_base,
+        replace=False,
+    )
+
+    working = (
+        truth_2024.iloc[
+            sampled_positions
+        ]
+        .reset_index(drop=True)
+        .copy()
+    )
+
+    true_levels = working[
+        "true_attainment_level"
+    ].to_numpy(
+        dtype=np.int64
+    )
+
+    observed_levels = (
+        true_levels.copy()
+    )
+
+    defect_counts = {
+        name: int(
+            np.floor(
+                n_base
+                * rate
+            )
+        )
+        for name, rate in rates.items()
+    }
+
+    defect_indices = (
+        _allocate_disjoint_indices(
+            n_base,
+            defect_counts,
+            rng,
+        )
+    )
+
+    minimum_ages = (
+        _minimum_age_by_level(
+            config
+        )
+    )
+
+    ages = working[
+        "age_at_reference_year"
+    ].to_numpy(
+        dtype=np.int64
+    )
+
+    for position in defect_indices[
+        "measurement_error"
+    ]:
+        observed_levels[
+            position
+        ] = _sample_alternative_attainment(
+            true_level=int(
+                true_levels[
+                    position
+                ]
+            ),
+            age_value=int(
+                ages[
+                    position
+                ]
+            ),
+            minimum_ages=minimum_ages,
+            rng=rng,
+        )
+
+    realised_measurement_errors = int(
+        (
+            observed_levels
+            != true_levels
+        ).sum()
+    )
+
+    if (
+        realised_measurement_errors
+        != defect_counts[
+            "measurement_error"
+        ]
+    ):
+        raise RuntimeError(
+            "Unexpected number of realised "
+            "Mikrozensus-like measurement errors."
+        )
+
+    code_values = np.asarray(
+        MIKROZENSUS_EDUCATION_CODES,
+        dtype=object,
+    )[
+        observed_levels - 1
+    ]
+
+    delivery = pd.DataFrame(
+        {
+            "person_id":
+                working[
+                    "person_id"
+                ].to_numpy(
+                    dtype=object
+                ),
+            "survey_year":
+                np.full(
+                    n_base,
+                    survey_year,
+                    dtype=np.int64,
+                ),
+            "education_code":
+                code_values,
+        }
+    )
+
+    delivery.loc[
+        defect_indices[
+            "missing_code"
+        ],
+        "education_code",
+    ] = pd.NA
+
+    delivery.loc[
+        defect_indices[
+            "unknown_code"
+        ],
+        "education_code",
+    ] = "E_UNKNOWN"
+
+    delivery.loc[
+        defect_indices[
+            "invalid_year"
+        ],
+        "survey_year",
+    ] = invalid_survey_year
+
+    delivery.loc[
+        defect_indices[
+            "missing_person_id"
+        ],
+        "person_id",
+    ] = pd.NA
+
+    duplicates = (
+        delivery.iloc[
+            defect_indices[
+                "duplicate_records"
+            ]
+        ]
+        .copy()
+    )
+
+    delivery = pd.concat(
+        [
+            delivery,
+            duplicates,
+        ],
+        ignore_index=True,
+    )
+
+    expected_rows = (
+        n_base
+        + defect_counts[
+            "duplicate_records"
+        ]
+    )
+
+    if len(delivery) != expected_rows:
+        raise RuntimeError(
+            "Unexpected number of "
+            "Mikrozensus-like delivery rows."
+        )
+
+    if int(
+        delivery[
+            "person_id"
+        ].isna().sum()
+    ) != defect_counts[
+        "missing_person_id"
+    ]:
+        raise RuntimeError(
+            "Unexpected number of missing "
+            "Mikrozensus person IDs."
+        )
+
+    if int(
+        delivery[
+            "education_code"
+        ].isna().sum()
+    ) != defect_counts[
+        "missing_code"
+    ]:
+        raise RuntimeError(
+            "Unexpected number of missing "
+            "Mikrozensus education codes."
+        )
+
+    if int(
+        delivery[
+            "education_code"
+        ].eq(
+            "E_UNKNOWN"
+        ).sum()
+    ) != defect_counts[
+        "unknown_code"
+    ]:
+        raise RuntimeError(
+            "Unexpected number of unknown "
+            "Mikrozensus education codes."
+        )
+
+    if int(
+        delivery[
+            "survey_year"
+        ].ne(
+            survey_year
+        ).sum()
+    ) != defect_counts[
+        "invalid_year"
+    ]:
+        raise RuntimeError(
+            "Unexpected number of invalid "
+            "Mikrozensus survey years."
+        )
+
+    duplicate_key_counts = (
+        delivery.loc[
+            delivery[
+                "person_id"
+            ].notna()
+        ]
+        .groupby(
+            [
+                "person_id",
+                "survey_year",
+            ]
+        )
+        .size()
+    )
+
+    n_duplicate_keys = int(
+        (
+            duplicate_key_counts > 1
+        ).sum()
+    )
+
+    if (
+        n_duplicate_keys
+        != defect_counts[
+            "duplicate_records"
+        ]
+    ):
+        raise RuntimeError(
+            "Unexpected number of duplicated "
+            "Mikrozensus person-year keys."
+        )
+
+    delivery_person_ids = set(
+        delivery[
+            "person_id"
+        ].dropna()
+    )
+
+    truth_person_ids = set(
+        truth_2024[
+            "person_id"
+        ]
+    )
+
+    if not delivery_person_ids.issubset(
+        truth_person_ids
+    ):
+        raise RuntimeError(
+            "Mikrozensus delivery contains persons "
+            "outside 2024 education truth."
+        )
+
+    return delivery[
+        MIKROZENSUS_2024_COLUMNS
     ]

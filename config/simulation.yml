@@ -415,3 +415,21 @@ education:
 
   mikrozensus_2024:
     seed: 20242
+    survey_year: 2024
+    invalid_survey_year: 2023
+    coverage: 0.08
+
+    measurement_error_rate: 0.015
+    missing_code_rate: 0.010
+    unknown_code_rate: 0.004
+    invalid_year_rate: 0.002
+    missing_person_id_rate: 0.002
+    duplicate_rate: 0.005
+
+    education_codes:
+      - "E1"
+      - "E2"
+      - "E3"
+      - "E4"
+      - "E5"
+      - "E6"

@@ -6,8 +6,10 @@ import yaml
 
 from simulation.education_sources import (
     BA_2024_COLUMNS,
+    MIKROZENSUS_2024_COLUMNS,
     ZENSUS_2022_COLUMNS,
     generate_ba_2024_delivery,
+    generate_mikrozensus_2024_delivery,
     generate_zensus_2022_delivery,
 )
 from simulation.education_truth import (
@@ -973,6 +975,427 @@ def test_ba_generation_is_reproducible() -> None:
         education_truth,
         config,
         np.random.default_rng(20241),
+    )
+
+    pd.testing.assert_frame_equal(
+        first,
+        second,
+    )
+
+
+def expected_mikrozensus_counts(
+    config: dict,
+    education_truth: pd.DataFrame,
+) -> tuple[int, dict[str, int]]:
+    source_config = config[
+        "education"
+    ][
+        "mikrozensus_2024"
+    ]
+
+    truth_2024 = education_truth[
+        education_truth[
+            "reference_year"
+        ].eq(2024)
+    ]
+
+    n_base = int(
+        np.floor(
+            len(truth_2024)
+            * source_config[
+                "coverage"
+            ]
+        )
+    )
+
+    counts = {
+        "measurement_error": int(
+            np.floor(
+                n_base
+                * source_config[
+                    "measurement_error_rate"
+                ]
+            )
+        ),
+        "missing_code": int(
+            np.floor(
+                n_base
+                * source_config[
+                    "missing_code_rate"
+                ]
+            )
+        ),
+        "unknown_code": int(
+            np.floor(
+                n_base
+                * source_config[
+                    "unknown_code_rate"
+                ]
+            )
+        ),
+        "invalid_year": int(
+            np.floor(
+                n_base
+                * source_config[
+                    "invalid_year_rate"
+                ]
+            )
+        ),
+        "missing_person_id": int(
+            np.floor(
+                n_base
+                * source_config[
+                    "missing_person_id_rate"
+                ]
+            )
+        ),
+        "duplicate_records": int(
+            np.floor(
+                n_base
+                * source_config[
+                    "duplicate_rate"
+                ]
+            )
+        ),
+    }
+
+    return (
+        n_base,
+        counts,
+    )
+
+
+def test_mikrozensus_schema_and_row_counts() -> None:
+    (
+        config,
+        education_truth,
+    ) = build_education_inputs()
+
+    delivery = generate_mikrozensus_2024_delivery(
+        education_truth,
+        config,
+        np.random.default_rng(20242),
+    )
+
+    (
+        n_base,
+        counts,
+    ) = expected_mikrozensus_counts(
+        config,
+        education_truth,
+    )
+
+    assert list(
+        delivery.columns
+    ) == MIKROZENSUS_2024_COLUMNS
+
+    assert len(delivery) == (
+        n_base
+        + counts[
+            "duplicate_records"
+        ]
+    )
+
+
+def test_mikrozensus_defect_counts_are_exact() -> None:
+    (
+        config,
+        education_truth,
+    ) = build_education_inputs()
+
+    delivery = generate_mikrozensus_2024_delivery(
+        education_truth,
+        config,
+        np.random.default_rng(20242),
+    )
+
+    (
+        _,
+        counts,
+    ) = expected_mikrozensus_counts(
+        config,
+        education_truth,
+    )
+
+    assert int(
+        delivery[
+            "person_id"
+        ].isna().sum()
+    ) == counts[
+        "missing_person_id"
+    ]
+
+    assert int(
+        delivery[
+            "education_code"
+        ].isna().sum()
+    ) == counts[
+        "missing_code"
+    ]
+
+    assert int(
+        delivery[
+            "education_code"
+        ].eq(
+            "E_UNKNOWN"
+        ).sum()
+    ) == counts[
+        "unknown_code"
+    ]
+
+    assert int(
+        delivery[
+            "survey_year"
+        ].ne(2024).sum()
+    ) == counts[
+        "invalid_year"
+    ]
+
+
+def test_mikrozensus_measurement_errors_are_exact_and_plausible() -> None:
+    (
+        config,
+        education_truth,
+    ) = build_education_inputs()
+
+    delivery = generate_mikrozensus_2024_delivery(
+        education_truth,
+        config,
+        np.random.default_rng(20242),
+    )
+
+    (
+        _,
+        counts,
+    ) = expected_mikrozensus_counts(
+        config,
+        education_truth,
+    )
+
+    code_to_level = {
+        f"E{level}": level
+        for level in range(
+            1,
+            7,
+        )
+    }
+
+    known = delivery.loc[
+        delivery[
+            "person_id"
+        ].notna()
+        & delivery[
+            "education_code"
+        ].isin(
+            code_to_level
+        )
+    ].copy()
+
+    known[
+        "observed_level"
+    ] = known[
+        "education_code"
+    ].map(
+        code_to_level
+    )
+
+    truth_2024 = education_truth.loc[
+        education_truth[
+            "reference_year"
+        ].eq(2024),
+        [
+            "person_id",
+            "age_at_reference_year",
+            "true_attainment_level",
+        ],
+    ]
+
+    checked = known.merge(
+        truth_2024,
+        on="person_id",
+        how="left",
+        validate="many_to_one",
+    )
+
+    mismatch = (
+        checked[
+            "observed_level"
+        ]
+        != checked[
+            "true_attainment_level"
+        ]
+    )
+
+    assert int(
+        mismatch.sum()
+    ) == counts[
+        "measurement_error"
+    ]
+
+    differences = (
+        checked.loc[
+            mismatch,
+            "observed_level",
+        ].to_numpy()
+        - checked.loc[
+            mismatch,
+            "true_attainment_level",
+        ].to_numpy()
+    )
+
+    assert (
+        np.abs(
+            differences
+        )
+        == 1
+    ).all()
+
+    minimum_ages = np.asarray(
+        config[
+            "education"
+        ][
+            "truth"
+        ][
+            "minimum_age_by_level"
+        ],
+        dtype=np.int64,
+    )
+
+    observed_levels = checked[
+        "observed_level"
+    ].to_numpy(
+        dtype=np.int64
+    )
+
+    assert (
+        checked[
+            "age_at_reference_year"
+        ].to_numpy()
+        >= minimum_ages[
+            observed_levels - 1
+        ]
+    ).all()
+
+
+def test_mikrozensus_persons_belong_to_2024_truth() -> None:
+    (
+        config,
+        education_truth,
+    ) = build_education_inputs()
+
+    delivery = generate_mikrozensus_2024_delivery(
+        education_truth,
+        config,
+        np.random.default_rng(20242),
+    )
+
+    (
+        n_base,
+        counts,
+    ) = expected_mikrozensus_counts(
+        config,
+        education_truth,
+    )
+
+    truth_ids = set(
+        education_truth.loc[
+            education_truth[
+                "reference_year"
+            ].eq(2024),
+            "person_id",
+        ]
+    )
+
+    observed_ids = set(
+        delivery[
+            "person_id"
+        ].dropna()
+    )
+
+    assert observed_ids.issubset(
+        truth_ids
+    )
+
+    assert delivery[
+        "person_id"
+    ].nunique(
+        dropna=True
+    ) == (
+        n_base
+        - counts[
+            "missing_person_id"
+        ]
+    )
+
+
+def test_mikrozensus_duplicate_keys_are_exact() -> None:
+    (
+        config,
+        education_truth,
+    ) = build_education_inputs()
+
+    delivery = generate_mikrozensus_2024_delivery(
+        education_truth,
+        config,
+        np.random.default_rng(20242),
+    )
+
+    (
+        _,
+        counts,
+    ) = expected_mikrozensus_counts(
+        config,
+        education_truth,
+    )
+
+    key_counts = (
+        delivery.loc[
+            delivery[
+                "person_id"
+            ].notna()
+        ]
+        .groupby(
+            [
+                "person_id",
+                "survey_year",
+            ]
+        )
+        .size()
+    )
+
+    duplicated_keys = (
+        key_counts[
+            key_counts > 1
+        ]
+    )
+
+    assert len(
+        duplicated_keys
+    ) == counts[
+        "duplicate_records"
+    ]
+
+    assert (
+        duplicated_keys == 2
+    ).all()
+
+
+def test_mikrozensus_generation_is_reproducible() -> None:
+    (
+        config,
+        education_truth,
+    ) = build_education_inputs()
+
+    first = generate_mikrozensus_2024_delivery(
+        education_truth,
+        config,
+        np.random.default_rng(20242),
+    )
+
+    second = generate_mikrozensus_2024_delivery(
+        education_truth,
+        config,
+        np.random.default_rng(20242),
     )
 
     pd.testing.assert_frame_equal(
