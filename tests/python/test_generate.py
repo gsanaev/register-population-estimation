@@ -23,6 +23,7 @@ from simulation.generate import (
     generate_population_world,
     generate_simulation_outputs,
     load_config,
+    main,
     population_rng,
     write_simulation_outputs,
 )
@@ -849,7 +850,8 @@ def test_write_simulation_outputs_to_temporary_root(
         assert expected_path.is_file()
 
         round_trip = pd.read_csv(
-            expected_path
+            expected_path,
+            low_memory=False,
         )
 
         assert list(
@@ -878,7 +880,7 @@ def test_write_simulation_outputs_rejects_repository_root() -> None:
 
     with pytest.raises(
         ValueError,
-        match="Repository-root persistence is disabled",
+        match="Repository-root persistence requires",
     ):
         write_simulation_outputs(
             outputs,
@@ -1120,3 +1122,53 @@ def test_build_persisted_population_truth_registered_locations() -> None:
             ]
         )
     )
+
+
+def test_write_simulation_outputs_allows_explicit_repository_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_config()
+
+    outputs = generate_simulation_outputs(
+        config
+    )
+
+    monkeypatch.setattr(
+        "simulation.generate.REPO_ROOT",
+        tmp_path,
+    )
+
+    written = write_simulation_outputs(
+        outputs,
+        tmp_path,
+        allow_repository_root=True,
+    )
+
+    assert set(written) == set(
+        OUTPUT_PATHS
+    )
+
+    for relative_path in (
+        OUTPUT_PATHS.values()
+    ):
+        assert (
+            tmp_path
+            / relative_path
+        ).is_file()
+
+
+def test_main_writes_complete_simulation_to_supplied_root(
+    tmp_path: Path,
+) -> None:
+    main(
+        tmp_path
+    )
+
+    for relative_path in (
+        OUTPUT_PATHS.values()
+    ):
+        assert (
+            tmp_path
+            / relative_path
+        ).is_file()

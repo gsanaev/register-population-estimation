@@ -684,6 +684,8 @@ def generate_simulation_outputs(
 def write_simulation_outputs(
     outputs: Mapping[str, Any],
     output_root: Path | str,
+    *,
+    allow_repository_root: bool = False,
 ) -> dict[str, Path]:
     """Write simulation outputs beneath a caller-supplied output root."""
 
@@ -691,10 +693,13 @@ def write_simulation_outputs(
         output_root
     ).resolve()
 
-    if root == REPO_ROOT.resolve():
+    if (
+        root == REPO_ROOT.resolve()
+        and not allow_repository_root
+    ):
         raise ValueError(
-            "Repository-root persistence is disabled "
-            "during migration validation."
+            "Repository-root persistence requires "
+            "explicit authorization."
         )
 
     missing_outputs = (
@@ -899,3 +904,45 @@ def build_persisted_population_truth(
     )
 
     return persisted_truth
+
+
+def main(
+    output_root: Path | str = REPO_ROOT,
+) -> None:
+    """Generate and persist the complete synthetic-data simulation."""
+
+    root = Path(
+        output_root
+    ).resolve()
+
+    config = load_config()
+
+    outputs = generate_simulation_outputs(
+        config
+    )
+
+    written = write_simulation_outputs(
+        outputs,
+        root,
+        allow_repository_root=(
+            root
+            == REPO_ROOT.resolve()
+        ),
+    )
+
+    print(
+        "Synthetic simulation generated successfully."
+    )
+
+    for name, path in written.items():
+        print(
+            f"{name:24s}",
+            f"{len(outputs[name]):7d}",
+            path.relative_to(
+                root
+            ),
+        )
+
+
+if __name__ == "__main__":
+    main()
