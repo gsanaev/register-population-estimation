@@ -20,8 +20,10 @@ from simulation.generate import (
     generate_education_attainment_sources,
     generate_population_sources,
     generate_population_world,
+    generate_simulation_outputs,
     load_config,
     population_rng,
+    write_simulation_outputs,
 )
 from simulation.population_sources import (
     EDUCATION_REGISTER_COLUMNS,
@@ -773,3 +775,138 @@ def test_generate_education_attainment_sources_do_not_write_files(
             "*.csv"
         )
     )
+
+
+def test_generate_simulation_outputs_contract() -> None:
+    config = load_config()
+
+    outputs = generate_simulation_outputs(
+        config
+    )
+
+    assert set(outputs) == set(
+        OUTPUT_PATHS
+    )
+
+    for frame in outputs.values():
+        assert isinstance(
+            frame,
+            pd.DataFrame,
+        )
+
+        assert len(frame) > 0
+
+
+def test_generate_simulation_outputs_are_reproducible() -> None:
+    config = load_config()
+
+    first = generate_simulation_outputs(
+        config
+    )
+
+    second = generate_simulation_outputs(
+        config
+    )
+
+    for name in OUTPUT_PATHS:
+        pd.testing.assert_frame_equal(
+            first[name],
+            second[name],
+        )
+
+
+def test_write_simulation_outputs_to_temporary_root(
+    tmp_path: Path,
+) -> None:
+    config = load_config()
+
+    outputs = generate_simulation_outputs(
+        config
+    )
+
+    written = write_simulation_outputs(
+        outputs,
+        tmp_path,
+    )
+
+    assert set(written) == set(
+        OUTPUT_PATHS
+    )
+
+    for name, relative_path in (
+        OUTPUT_PATHS.items()
+    ):
+        expected_path = (
+            tmp_path
+            / relative_path
+        )
+
+        assert written[
+            name
+        ] == expected_path
+
+        assert expected_path.is_file()
+
+        round_trip = pd.read_csv(
+            expected_path
+        )
+
+        assert list(
+            round_trip.columns
+        ) == list(
+            outputs[
+                name
+            ].columns
+        )
+
+        assert len(
+            round_trip
+        ) == len(
+            outputs[
+                name
+            ]
+        )
+
+
+def test_write_simulation_outputs_rejects_repository_root() -> None:
+    config = load_config()
+
+    outputs = generate_simulation_outputs(
+        config
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Repository-root persistence is disabled",
+    ):
+        write_simulation_outputs(
+            outputs,
+            DEFAULT_CONFIG_PATH.parents[1],
+        )
+
+
+def test_write_simulation_outputs_requires_exact_contract(
+    tmp_path: Path,
+) -> None:
+    config = load_config()
+
+    outputs = generate_simulation_outputs(
+        config
+    )
+
+    incomplete = dict(
+        outputs
+    )
+
+    incomplete.pop(
+        "tax_register"
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="persistence contract",
+    ):
+        write_simulation_outputs(
+            incomplete,
+            tmp_path,
+        )

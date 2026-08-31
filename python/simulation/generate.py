@@ -591,3 +591,181 @@ def generate_education_attainment_sources(
         "mikrozensus_2024":
             mikrozensus_2024,
     }
+
+
+def generate_simulation_outputs(
+    config: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Generate the ten final simulation outputs in memory."""
+
+    population_world = (
+        generate_population_world(
+            config
+        )
+    )
+
+    population_sources = (
+        generate_population_sources(
+            config,
+            population_world,
+        )
+    )
+
+    education_sources = (
+        generate_education_attainment_sources(
+            config,
+            population_world,
+        )
+    )
+
+    outputs = {
+        "population_truth":
+            population_world[
+                "population_truth"
+            ],
+        "address_register":
+            population_world[
+                "address_register"
+            ],
+        "population_register":
+            population_sources[
+                "population_register"
+            ],
+        "employment_register":
+            population_sources[
+                "employment_register"
+            ],
+        "tax_register":
+            population_sources[
+                "tax_register"
+            ],
+        "education_register":
+            population_sources[
+                "education_register"
+            ],
+        "education_truth":
+            education_sources[
+                "education_truth"
+            ],
+        "zensus_2022":
+            education_sources[
+                "zensus_2022"
+            ],
+        "ba_2024":
+            education_sources[
+                "ba_2024"
+            ],
+        "mikrozensus_2024":
+            education_sources[
+                "mikrozensus_2024"
+            ],
+    }
+
+    if set(outputs) != set(
+        OUTPUT_PATHS
+    ):
+        raise RuntimeError(
+            "Simulation outputs do not match "
+            "the persistence contract."
+        )
+
+    return outputs
+
+
+def write_simulation_outputs(
+    outputs: Mapping[str, Any],
+    output_root: Path | str,
+) -> dict[str, Path]:
+    """Write simulation outputs beneath a caller-supplied output root."""
+
+    root = Path(
+        output_root
+    ).resolve()
+
+    if root == REPO_ROOT.resolve():
+        raise ValueError(
+            "Repository-root persistence is disabled "
+            "during migration validation."
+        )
+
+    missing_outputs = (
+        set(OUTPUT_PATHS)
+        - set(outputs)
+    )
+
+    extra_outputs = (
+        set(outputs)
+        - set(OUTPUT_PATHS)
+    )
+
+    if missing_outputs or extra_outputs:
+        details = []
+
+        if missing_outputs:
+            details.append(
+                "missing: "
+                + ", ".join(
+                    sorted(
+                        missing_outputs
+                    )
+                )
+            )
+
+        if extra_outputs:
+            details.append(
+                "unexpected: "
+                + ", ".join(
+                    sorted(
+                        extra_outputs
+                    )
+                )
+            )
+
+        raise ValueError(
+            "Simulation outputs do not match "
+            "the persistence contract ("
+            + "; ".join(details)
+            + ")."
+        )
+
+    written_paths: dict[
+        str,
+        Path,
+    ] = {}
+
+    for name, relative_path in (
+        OUTPUT_PATHS.items()
+    ):
+        output_path = (
+            root
+            / relative_path
+        )
+
+        output_path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        frame = outputs[
+            name
+        ]
+
+        if not hasattr(
+            frame,
+            "to_csv",
+        ):
+            raise TypeError(
+                f"Simulation output {name} "
+                "is not tabular."
+            )
+
+        frame.to_csv(
+            output_path,
+            index=False,
+        )
+
+        written_paths[
+            name
+        ] = output_path
+
+    return written_paths
