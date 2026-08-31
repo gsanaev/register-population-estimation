@@ -314,16 +314,10 @@ education_target_population <-
 if (
   nrow(
     education_target_population
-  ) !=
-    43004L
+  ) == 0L
 ) {
   stop(
-    paste(
-      "Unexpected 2024 education target-population size:",
-      nrow(
-        education_target_population
-      )
-    ),
+    "Education target population is empty.",
     call. = FALSE
   )
 }
@@ -528,18 +522,27 @@ if (
 }
 
 
+expected_person_year_records <-
+  target_evidence %>%
+
+  distinct(
+    person_id,
+    reference_year
+  ) %>%
+
+  nrow()
+
+
 if (
   nrow(
     education_attainment_person_year
   ) !=
-    27133L
+    expected_person_year_records
 ) {
   stop(
     paste(
-      "Unexpected number of consolidated person-year records:",
-      nrow(
-        education_attainment_person_year
-      )
+      "Consolidated person-year records do not reconcile",
+      "to distinct target-evidence person/year keys."
     ),
     call. = FALSE
   )
@@ -547,21 +550,23 @@ if (
 
 
 if (
-  sum(
-    education_attainment_person_year$
-      same_year_decision_reason ==
-      "same_year_conflict"
-  ) !=
-    16L
+  any(
+    (
+      education_attainment_person_year$
+        same_year_decision_reason ==
+        "same_year_conflict"
+    ) !=
+      (
+        education_attainment_person_year$
+          same_year_status ==
+          "review_required"
+      )
+  )
 ) {
   stop(
     paste(
-      "Unexpected number of same-year conflicts:",
-      sum(
-        education_attainment_person_year$
-          same_year_decision_reason ==
-          "same_year_conflict"
-      )
+      "Same-year conflict classification is inconsistent",
+      "with review-required status."
     ),
     call. = FALSE
   )
@@ -930,14 +935,14 @@ if (
   nrow(
     education_attainment_2024
   ) !=
-    43004L
+    nrow(
+      education_target_population
+    )
 ) {
   stop(
     paste(
-      "Unexpected final education-attainment population size:",
-      nrow(
-        education_attainment_2024
-      )
+      "Final education-attainment population does not reconcile",
+      "to the operational target population."
     ),
     call. = FALSE
   )

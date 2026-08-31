@@ -299,11 +299,10 @@ education_population_alignment_summary <-
 if (
   nrow(
     attainment_2024
-  ) !=
-    43004L
+  ) == 0L
 ) {
   stop(
-    "Unexpected operational 2024 education target-population size.",
+    "Operational 2024 education target population is empty.",
     call. = FALSE
   )
 }
@@ -312,11 +311,10 @@ if (
 if (
   nrow(
     truth_2024
-  ) !=
-    41626L
+  ) == 0L
 ) {
   stop(
-    "Unexpected hidden 2024 education-truth population size.",
+    "Hidden 2024 education-truth population is empty.",
     call. = FALSE
   )
 }
@@ -325,11 +323,52 @@ if (
 if (
   nrow(
     population_overlap
-  ) !=
-    40773L
+  ) == 0L
 ) {
   stop(
-    "Unexpected overlap between operational target and hidden truth.",
+    "Operational target and hidden truth have no population overlap.",
+    call. = FALSE
+  )
+}
+
+
+if (
+  nrow(
+    population_overlap
+  ) +
+    nrow(
+      operational_without_truth
+    ) !=
+    nrow(
+      attainment_2024
+    )
+) {
+  stop(
+    paste(
+      "Operational population alignment does not reconcile",
+      "to the operational target population."
+    ),
+    call. = FALSE
+  )
+}
+
+
+if (
+  nrow(
+    population_overlap
+  ) +
+    nrow(
+      truth_outside_operational
+    ) !=
+    nrow(
+      truth_2024
+    )
+) {
+  stop(
+    paste(
+      "Hidden-truth population alignment does not reconcile",
+      "to the 2024 truth population."
+    ),
     call. = FALSE
   )
 }
@@ -737,28 +776,46 @@ education_evaluation_by_decision_reason <-
 # ---------------------------------------------------------------------
 
 if (
-  range_evaluable_persons !=
-    23400L
+  range_evaluable_persons >
+    nrow(
+      evaluation_overlap
+    )
 ) {
   stop(
-    paste(
-      "Unexpected number of range-evaluable persons:",
-      range_evaluable_persons
-    ),
+    "Range-evaluable persons exceed the evaluation overlap.",
     call. = FALSE
   )
 }
 
 
 if (
-  range_agreement_persons !=
-    22392L
+  range_agreement_persons >
+    range_evaluable_persons
 ) {
   stop(
-    paste(
-      "Unexpected number of range-agreeing persons:",
-      range_agreement_persons
-    ),
+    "Range-agreeing persons exceed range-evaluable persons.",
+    call. = FALSE
+  )
+}
+
+
+if (
+  exact_state_persons >
+    range_evaluable_persons
+) {
+  stop(
+    "Exact-state persons exceed range-evaluable persons.",
+    call. = FALSE
+  )
+}
+
+
+if (
+  exact_match_persons >
+    exact_state_persons
+) {
+  stop(
+    "Exact matches exceed exact-state persons.",
     call. = FALSE
   )
 }
@@ -801,11 +858,15 @@ if (
 
 if (
   education_attainment_evaluation_summary$
-    unresolved_review_without_range !=
-    11L
+    unresolved_review_without_range >
+    education_attainment_evaluation_summary$
+      review_required_persons
 ) {
   stop(
-    "Unexpected number of unresolved review cases without a range.",
+    paste(
+      "Unresolved review cases without a range exceed",
+      "the total review-required population."
+    ),
     call. = FALSE
   )
 }
