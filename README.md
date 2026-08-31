@@ -1,45 +1,63 @@
-# 📊 Register-Based Population Estimation with Activity and Address Evidence
+# 📊 Register-Based Population and Education Data Integration
 
-A reproducible R workflow for exploring population estimation from multiple synthetic administrative data sources.
+A reproducible **Python + R** workflow for synthetic register-based population estimation, multi-source data integration, quality assurance and educational-attainment reconciliation.
 
+![Python](https://img.shields.io/badge/Python-3.12-3776AB.svg)
 ![made-with-R](https://img.shields.io/badge/Made%20with-R-276DC2.svg)
+![tests](https://img.shields.io/badge/Python%20tests-109%20passing-brightgreen.svg)
 ![license](https://img.shields.io/badge/license-MIT-green.svg)
 
 ---
 
 ## 🚀 Project Overview
 
-This project develops a fully synthetic methodological workflow for **register-based population estimation**.
+This project develops a fully synthetic methodological workflow for **register-based population and education data integration**.
 
-It is motivated by typical challenges in administrative-data-based population statistics, including:
+It contains two complementary analytical modules:
 
-- outdated or incomplete population-register records
-- population-register undercoverage and overcoverage
-- persons appearing in auxiliary administrative sources but not in the population register
-- inconsistent address information across data sources
-- incomplete activity signals
-- the need to distinguish data-quality problems from residence-status uncertainty
+1. **Population module**
+   - population-register undercoverage and overcoverage
+   - multi-source activity signals
+   - address evidence
+   - population-stock estimation
+   - synthetic residence clarification
 
-The core workflow integrates synthetic population, address, employment, tax and education registers and demonstrates how observable administrative evidence can be used to construct population estimates.
+2. **Education-attainment module**
+   - heterogeneous person-level data deliveries
+   - delivery validation and quality assurance
+   - source-specific harmonisation
+   - same-year evidence consolidation
+   - longitudinal reconciliation
+   - synthetic truth-based evaluation
 
-**Version 2.1** adds a separate educational-attainment extension. It demonstrates delivery validation, source-specific harmonisation, person-level evidence integration, longitudinal reconciliation and synthetic truth-based evaluation.
+The project deliberately separates the technical responsibilities of the workflow:
 
-The project is **not an implementation of an official Destatis production system**. All data, probabilities, clarification mechanisms and results are synthetic and are intended for methodological demonstration only.
+- **Python** generates the hidden synthetic world and imperfect observable source data.
+- **R** performs the operational statistical processing, validation, integration, reconciliation, estimation and reporting.
+
+This separation makes it possible to evaluate statistical procedures against controlled synthetic truth without allowing hidden information to become ordinary operational evidence.
+
+The project is **not an implementation of an official Destatis production system**. All persons, addresses, source deliveries, probabilities, clarification mechanisms and results are synthetic and are intended for methodological demonstration only.
 
 ---
 
 ## 🧠 Methodological Concept
 
-The workflow combines three types of observable evidence:
+The project explores a general statistical problem:
+
+> How can heterogeneous and imperfect person-level data sources be combined without treating any single source as automatically complete or correct?
+
+For the population module, three types of observable evidence are combined:
 
 1. **Population-register evidence**
    - whether a person is registered
-   - registered address and demographic information
+   - registered demographic information
+   - registered address
 
 2. **Activity evidence**
    - employment activity
-   - tax filing activity
-   - education enrolment
+   - tax activity
+   - education participation
 
 3. **Address evidence**
    - source-specific administrative contact addresses
@@ -54,62 +72,100 @@ However, the workflow deliberately avoids the rule:
 
 Instead, missing or conflicting evidence is treated as **uncertainty that may require additional clarification**.
 
+For the education module, heterogeneous source-specific classifications are translated into a common analytical representation. Conflicting evidence is not silently overwritten, and missing information is not interpreted as low educational attainment.
+
 ---
 
 ## 🇩🇪 Kurzbeschreibung
 
-Dieses Projekt entwickelt einen reproduzierbaren, vollständig synthetischen Workflow zur **registerbasierten Bevölkerungsschätzung** und erweitert ihn um ein separates Modul zur **Integration von Bildungsstandsdaten**.
+Dieses Projekt entwickelt einen reproduzierbaren, vollständig synthetischen Workflow zur **Integration registerbasierter Bevölkerungs- und Bildungsdaten**.
 
-Mehrere administrative Datenquellen werden miteinander verknüpft:
+Die technische Architektur trennt bewusst zwei Aufgaben:
 
-- Bevölkerungsregister
-- Anschriftenregister
-- Beschäftigungsdaten
-- Steuerdaten
-- Bildungsdaten
+- **Python** erzeugt eine kontrollierte synthetische Grundgesamtheit sowie fehlerbehaftete Datenlieferungen.
+- **R** übernimmt die operative Validierung, Qualitätssicherung, Harmonisierung, Datenintegration, Schätzung und Auswertung.
 
-Im Kernworkflow werden Aktivitätssignale („Lebenszeichen“) und Anschrifteninformationen kombiniert. Ein fehlendes Aktivitätssignal wird **nicht automatisch als Hinweis auf einen fehlenden Wohnsitz interpretiert**. Stattdessen werden Fälle mit erhöhter Unsicherheit transparent identifiziert.
+### Bevölkerungsmodul
 
-Die Erweiterung zum Bildungsstand verarbeitet heterogene synthetische Datenlieferungen, prüft ihre Qualität, harmonisiert unterschiedliche Merkmalsausprägungen und führt Informationen auf Personenebene über Quellen und Berichtsjahre hinweg zusammen. Fehlende Bildungsangaben werden **nicht als niedriger Bildungsstand interpretiert**; widersprüchliche Angaben werden als Klärungsfälle ausgewiesen.
+Im Bevölkerungsmodul werden Informationen aus einem synthetischen Bevölkerungsregister mit Beschäftigungs-, Steuer-, Bildungsbeteiligungs- und Anschrifteninformationen verknüpft.
+
+Aktivitätssignale können dabei als synthetische **„Lebenszeichen“** interpretiert werden.
+
+Ein fehlendes Aktivitätssignal wird jedoch **nicht automatisch als Hinweis auf einen fehlenden Wohnsitz interpretiert**. Stattdessen werden Fälle mit unvollständigen oder widersprüchlichen Informationen transparent identifiziert und gegebenenfalls als Klärungsfälle behandelt.
+
+Anschriftenprobleme und Unsicherheit über den Wohnstatus werden dabei bewusst voneinander getrennt.
+
+### Bildungsmodul
+
+Das Bildungsmodul verarbeitet heterogene synthetische Datenlieferungen zum **Bildungsstand der Bevölkerung**.
+
+Der Workflow umfasst:
+
+- Entgegennahme unterschiedlicher Datenlieferungen
+- Schema- und Qualitätsprüfungen
+- Harmonisierung unterschiedlicher Merkmalsausprägungen
+- Zusammenführung auf Personenebene
+- Abstimmung mehrerer Quellen innerhalb eines Berichtsjahres
+- longitudinale Abstimmung zwischen Berichtsjahren
+- Kennzeichnung von Klärungsfällen und fehlenden Angaben
+- getrennte Evaluation anhand einer verborgenen synthetischen Referenz
+
+Fehlende Bildungsangaben werden **nicht als niedriger Bildungsstand interpretiert**. Widersprüchliche Informationen werden nicht stillschweigend überschrieben, sondern explizit als prüfungsbedürftig gekennzeichnet.
 
 ### Bezug zur amtlichen Statistik
 
-Der methodische Schwerpunkt liegt auf Aufgaben, die für die amtliche Statistik relevant sind:
+Der methodische Schwerpunkt liegt auf Aufgaben, die für registerbasierte amtliche Statistik relevant sind:
 
-- Datenübernahme und Validierung
-- Qualitätssicherung
-- Harmonisierung heterogener Merkmale
-- personbezogene Datenintegration
-- Fortschreibung über Berichtsjahre
-- Plausibilisierung widersprüchlicher Angaben
-- transparente und reproduzierbare Entscheidungsregeln
+- Datenübernahme und Datenvalidierung
+- Qualitätssicherung von Datenlieferungen
+- Integration heterogener personenbezogener Quellen
+- Harmonisierung unterschiedlicher Merkmalsausprägungen
+- Plausibilisierung widersprüchlicher Informationen
+- longitudinale Fortschreibung
+- transparente Entscheidungsregeln
+- reproduzierbare statistische Verarbeitung
 
-Das Projekt bildet **kein offizielles Verfahren des Statistischen Bundesamtes** und kein produktives Registerzensus-System nach. Daten, Regeln, Wahrscheinlichkeiten und Ergebnisse sind vollständig synthetisch und dienen ausschließlich der methodischen Demonstration.
+Die verwendeten Datenquellen und Regeln sind vereinfachte synthetische Abbildungen.
+
+Das Projekt bildet **kein offizielles Verfahren des Statistischen Bundesamtes und kein produktives Registerzensus-System** nach.
 
 ---
 
 ## 🧪 Synthetic Data Architecture
 
-The project starts from a hidden synthetic population benchmark and generates imperfect observable administrative registers from it.
+The project begins with a hidden synthetic world and generates imperfect observable data sources from it.
 
-### Hidden synthetic benchmark
+Simulation assumptions and random seeds are centralized in:
 
-The simulation contains:
+```text
+config/simulation.yml
+```
+
+The simulation layer is implemented in:
+
+```text
+python/simulation/
+```
+
+### Hidden Synthetic Population
+
+The population simulation contains:
 
 - **50,000 true residents**
 - **3,000 former/non-residents**
 - **53,000 persons in the synthetic universe**
-- **23,825 households**
-- **18,000 addresses**
+- **18,000 synthetic addresses**
 - **12 synthetic regions**
 
-The hidden benchmark contains the true residence and coverage status of each synthetic person.
+The hidden benchmark contains information such as the true residence state and synthetic location of each person.
 
-These truth variables are kept separate from the operational register-processing pipeline.
+Hidden truth is required for controlled data generation and subsequent evaluation, but it is kept conceptually separate from observable administrative evidence.
 
-### Observable administrative sources
+---
 
-#### Population Register
+## 📚 Observable Population Sources
+
+### Population Register
 
 Contains:
 
@@ -119,14 +175,16 @@ Contains:
 - age and age group
 - sex
 - citizenship group
-- registration status and dates
+- registration status
+- registration date
+- last movement date
 
 The synthetic population register deliberately contains both:
 
 - **undercoverage** — true residents missing from the population register
-- **overcoverage** — former/non-residents still present in the register
+- **overcoverage** — former/non-residents still represented in the register
 
-#### Address Register
+### Address Register
 
 Contains synthetic information about:
 
@@ -136,17 +194,17 @@ Contains synthetic information about:
 - urbanicity
 - address type
 
-#### Employment Register
+### Employment Register
 
 Contains:
 
 - employment status
-- days employed
+- days employed during the previous 12 months
 - annual employment income
 - reference date
 - source-specific administrative contact address
 
-#### Tax Register
+### Tax Register
 
 Contains:
 
@@ -155,187 +213,268 @@ Contains:
 - tax year
 - source-specific administrative contact address
 
-#### Education Register
+### Education Participation Register
 
 Contains:
 
 - enrolment indicator
 - institution type
+- school year
 - source-specific administrative contact address
 
-The auxiliary registers are generated independently from the synthetic truth rather than being restricted to persons already present in the population register.
+The auxiliary registers are generated independently of population-register membership.
 
-This allows true undercoverage cases to appear in auxiliary sources.
+This allows true undercoverage cases to appear in auxiliary sources even when they are absent from the population register.
 
-The education register used in the core population workflow represents **current education participation / enrolment activity** and contributes an activity signal. It is distinct from the Version 2.1 educational-attainment extension described below.
+The education register used here represents **current education participation / enrolment activity**. It is conceptually distinct from the educational-attainment deliveries used in the separate education module.
 
 ---
 
 ## 🔄 Workflow Pipeline
 
 ```text
-┌───────────────────────────────────┐
-│ 01_generate_synthetic_registers.R │
-└────────────────┬──────────────────┘
-                 │
-                 ▼
-Synthetic benchmark + imperfect observable registers
-                 │
-                 ▼
-┌───────────────────────────────────┐
-│ 02_clean_and_validate_registers.R │
-└────────────────┬──────────────────┘
-                 │
-                 ▼
-Clean registers + neutral activity/address indicators
-                 │
-                 ▼
-┌───────────────────────────────────┐
-│  03_integrate_activity_signals.R  │
-└────────────────┬──────────────────┘
-                 │
-                 ▼
-Person-level and address-level evidence
-                 │
-                 ▼
-┌───────────────────────────────────┐
-│  04_estimate_population_stock.R   │
-└────────────────┬──────────────────┘
-                 │
-                 ▼
-Baseline, evidence and clarification-assisted estimates
-                 │
-                 ▼
-┌───────────────────────────────────┐
-│      05_visualize_results.R       │
-└───────────────────────────────────┘
+                     config/simulation.yml
+                              │
+                              ▼
+                 ┌─────────────────────────┐
+                 │        Python           │
+                 │   simulation.generate   │
+                 └────────────┬────────────┘
+                              │
+                              ▼
+             Hidden synthetic world and truth
+                              │
+                              ▼
+          Imperfect observable synthetic sources
+                              │
+                              ▼
+                     Raw CSV deliveries
+                              │
+              ┌───────────────┴───────────────┐
+              │                               │
+              ▼                               ▼
+      POPULATION MODULE                EDUCATION MODULE
+              │                               │
+              ▼                               ▼
+┌─────────────────────────────┐   ┌─────────────────────────────┐
+│ 01_clean_and_validate_      │   │ 01_validate_harmonize_      │
+│ registers.R                 │   │ education.R                 │
+└──────────────┬──────────────┘   └──────────────┬──────────────┘
+               │                                 │
+               ▼                                 ▼
+       Clean registers                  Validated and
+       + QA indicators                  harmonised evidence
+               │                                 │
+               ▼                                 ▼
+┌─────────────────────────────┐   ┌─────────────────────────────┐
+│ 02_integrate_activity_      │   │ 02_consolidate_education_   │
+│ signals.R                   │   │ attainment.R                │
+└──────────────┬──────────────┘   └──────────────┬──────────────┘
+               │                                 │
+               ▼                                 ▼
+   Person/address evidence            Person-year +
+               │                     longitudinal states
+               ▼                                 │
+┌─────────────────────────────┐                    ▼
+│ 03_estimate_population_     │   ┌─────────────────────────────┐
+│ stock.R                     │   │ 03_evaluate_education_      │
+└──────────────┬──────────────┘   │ attainment.R                │
+               │                  └─────────────────────────────┘
+               ▼
+ Population estimates
+ + synthetic clarification
+               │
+               ▼
+┌─────────────────────────────┐
+│ 04_visualize_results.R      │
+└─────────────────────────────┘
 ```
 
 ---
 
-## 🔍 Workflow Stages
+## 🐍 Python Simulation Layer
 
-### 1. Synthetic Data Generation
+Python owns the synthetic data-generating process.
 
-The first script creates:
+The simulation package is divided into explicit modules:
 
-- the hidden synthetic benchmark
-- address register
-- imperfect population register
-- employment register
-- tax register
-- education register
+- `world.py` — hidden synthetic population, households and addresses
+- `population_sources.py` — imperfect observable population-related registers
+- `education_truth.py` — hidden longitudinal educational-attainment truth
+- `education_sources.py` — heterogeneous education-attainment deliveries
+- `generate.py` — configuration loading, deterministic RNG ownership, orchestration and persistence
 
-Controlled imperfections include missing values, stale registrations, undercoverage, residual auxiliary activity and inconsistent source-specific addresses.
+This architecture separates:
 
-Simulation probabilities are illustrative methodological assumptions rather than empirical estimates for Germany.
+> **what is true in the synthetic world**
 
-### 2. Cleaning and Validation
+from
 
-The second script performs:
+> **what each observable source is allowed to report**
 
+The distinction is important because source imperfections can be generated from hidden truth without exposing that truth as operational input.
+
+---
+
+## 🎲 Deterministic Simulation
+
+The simulation uses fixed, component-specific random-number streams.
+
+Separate deterministic RNG streams are used for:
+
+- address generation
+- household generation
+- true residents
+- former residents
+- population-register generation
+- employment observations
+- employment contact addresses
+- tax observations
+- tax contact addresses
+- education-participation observations
+- education contact addresses
+- education-attainment truth
+- Zensus-like attainment delivery
+- BA-like attainment delivery
+- Mikrozensus-like attainment delivery
+
+Repeated generation from an unchanged configuration produces **byte-identical raw CSV files**.
+
+This makes changes to the synthetic input layer reproducible and auditable.
+
+---
+
+# 👥 Population Module
+
+## 🔍 1. Cleaning and Validation
+
+The first R stage performs:
+
+- schema and structural checks
 - key uniqueness checks
 - referential-integrity checks
 - plausibility checks
 - register-specific cleaning
 - address validation
+- cross-register consistency checks
 - construction of neutral activity indicators
 - identification of auxiliary-only persons
 
-Importantly, hidden truth is not incorporated into the cleaned operational datasets.
+The current synthetic realization contains:
 
-### 3. Multi-Source Evidence Integration
+- population-register records: **51,395**
+- true residents represented in the population register: **49,006**
+- true population-register undercoverage: **994**
+- true population-register overcoverage: **2,389**
 
-The third script constructs an analysis-ready person-level evidence dataset.
+Across all observable population sources:
+
+- **52,200 unique persons** are observed
+- **805 persons** appear only in auxiliary sources
+- **800 persons** are absent from every observable source
+- **267** of the completely unobserved persons are true residents
+
+These completely unobserved residents illustrate residual undercoverage that cannot be recovered through person-level linkage of the available sources alone.
+
+---
+
+## 🔗 2. Multi-Source Evidence Integration
+
+The second R stage constructs an analysis-ready person-level evidence dataset.
 
 It combines:
 
 - population-register presence
-- activity signals
+- employment activity
+- tax activity
+- education-participation activity
 - auxiliary-source presence
 - contact-address agreement
 - contact-address conflicts
 - population-register versus auxiliary-address disagreement
 
-It also creates an **analytical geography** for aggregation.
+It also constructs analytical geography for aggregation.
 
-For registered persons, this comes from the population register.
+For registered persons, analytical geography is based on the population register.
 
-For auxiliary-only persons, it is used only when auxiliary sources provide a consistent address.
+For auxiliary-only persons, an analytical address is used only where auxiliary sources provide sufficiently consistent information.
 
-An analytical address is not interpreted as verified residence.
+An analytical address is **not interpreted as verified residence**.
 
-### 4. Population Estimation and Synthetic Clarification
+---
 
-Three estimation approaches are compared.
+## 🧭 Activity and Address Evidence
 
-#### Population-register baseline
+Activity signals are treated as evidence rather than deterministic residence rules.
 
-Every person in the population register is counted as resident.
+A person with no observed activity is therefore not automatically removed from the estimated population.
 
-#### Evidence fallback
+Likewise, an auxiliary contact address that differs from the population-register address is not automatically interpreted as proof that the registered residence is incorrect.
 
-The population-register baseline is supplemented with auxiliary-only persons who have:
+This allows the workflow to distinguish:
 
-- at least one positive activity signal, and
-- a consistent auxiliary address.
+- residence-status uncertainty
+- address inconsistency
+- register undercoverage
+- register overcoverage
 
-#### Clarification-assisted estimate
+without assuming that one source contains the definitive answer.
 
-Cases with increased residence-status uncertainty are selected using observable evidence.
+---
 
-Residence clarification targets include:
+## 📐 3. Population Estimation and Synthetic Clarification
 
-- registered persons aged 18–64 without positive auxiliary activity
-- registered persons with unknown age and no positive activity
-- auxiliary-only persons
+Three population-estimation approaches are compared.
 
-A synthetic clarification process is then simulated.
+### Population-Register Baseline
 
-The clarification mechanism uses illustrative assumptions of:
+Every person represented in the population register is counted as resident.
+
+### Evidence Fallback
+
+The population-register baseline is supplemented with auxiliary-only persons where observable activity and address evidence support inclusion.
+
+### Clarification-Assisted Estimate
+
+Cases with increased residence-status uncertainty are identified using observable information.
+
+The current realization identifies:
+
+- **5,708 residence-clarification targets**
+
+The largest target group consists of registered persons aged 18–64 without a positive auxiliary activity signal.
+
+A synthetic clarification process then uses illustrative assumptions of:
 
 - **90% response probability**
 - **98% clarification-result accuracy**
 
-These parameters are simulation assumptions and are not empirical estimates.
+These parameters are simulation assumptions and are **not empirical estimates for Germany**.
 
-Address-quality cases and residence-status clarification are treated separately.
+Absence of activity is used only as a **clarification trigger**, not as direct evidence of non-residence.
 
----
-
-## 📈 Key Results
-
-### Synthetic Population Structure
-
-The hidden benchmark contains:
-
-- true population: **50,000**
-- population-register records: **51,447**
-- true population-register undercoverage: **956**
-- true population-register overcoverage: **2,403**
-
-Across all observable registers, **52,253 unique persons** are observed.
-
-There are **806 auxiliary-only persons**, demonstrating that auxiliary sources can provide evidence about people not present in the population register.
-
-A further **747 persons** are absent from every observable source, including **233 true residents**.
-
-These completely unobserved residents represent residual undercoverage that cannot be recovered through person-level linkage of the available sources alone.
+Hidden residence truth is used to simulate clarification outcomes and subsequently evaluate the methods. The clarification-assisted result should therefore be interpreted as a synthetic methodological scenario rather than a deployable operational procedure.
 
 ---
 
-## 📊 Population-Stock Estimates
+## 📈 Population-Stock Results
 
-| Estimation approach | Estimated population | Error vs. true population |
+| Estimation approach | Estimated population | Error vs. hidden truth |
 |---|---:|---:|
-| Population-register baseline | 51,447 | +1,447 |
-| Evidence fallback | 52,193 | +2,193 |
-| Clarification-assisted | 50,592 | +592 |
-| Hidden synthetic benchmark | 50,000 | — |
+| Population-register baseline | 51,395 | +1,395 |
+| Evidence fallback | 52,151 | +2,151 |
+| Clarification-assisted | **50,533** | **+533** |
+| Hidden synthetic population | 50,000 | — |
 
-The evidence fallback recovers many undercovered true residents but also introduces additional false positives.
+The evidence fallback recovers additional undercovered true residents, but also introduces additional false-positive inclusions.
 
-The clarification-assisted approach substantially reduces overcoverage while retaining high recall.
+This illustrates an important statistical distinction:
+
+> Better recovery of undercovered individuals does not automatically imply a better aggregate population estimate.
+
+The clarification-assisted scenario substantially reduces overcoverage while retaining very high recall.
+
+![Overall population estimates](output/figures/population_estimates_overall.png)
 
 ---
 
@@ -343,100 +482,88 @@ The clarification-assisted approach substantially reduces overcoverage while ret
 
 | Method | Accuracy | Precision | Recall | Specificity |
 |---|---:|---:|---:|---:|
-| Population-register baseline | 0.937 | 0.953 | 0.981 | 0.199 |
-| Evidence fallback | 0.948 | 0.953 | 0.994 | 0.177 |
-| Clarification-assisted | **0.977** | **0.982** | **0.994** | **0.699** |
+| Population-register baseline | 93.62% | 95.35% | 98.01% | 20.37% |
+| Evidence fallback | 94.81% | 95.30% | **99.40%** | 18.33% |
+| Clarification-assisted | **97.66%** | **98.24%** | 99.29% | **70.43%** |
 
-The results illustrate an important distinction:
+False-positive cases are reduced from:
 
-> Better recovery of undercoverage does not automatically imply a better aggregate population estimate.
+- **2,389** in the population-register baseline
+- **2,450** in the evidence fallback
 
-The evidence fallback improves recall but increases false-positive inclusion.
+to:
 
-Targeted clarification substantially improves specificity while preserving very high recall.
+- **887** in the clarification-assisted scenario
 
----
+while the number of correctly identified true residents remains high.
 
-## 🔎 Residence Clarification
-
-The final workflow identifies **5,708 residence-clarification targets**.
-
-The largest target group consists of registered persons aged 18–64 with no positive activity signal.
-
-Importantly, absence of activity is used only as a **clarification trigger**, not as direct evidence of non-residence.
-
-Address inconsistencies are retained separately as data-quality and address-clarification issues.
+![Person-level estimation quality](output/figures/estimation_quality_by_method.png)
 
 ---
 
-## 🗺 Address Evidence
+# 🎓 Education-Attainment Module
 
-The Version 2 workflow explicitly models address information.
+The second major module addresses a related but distinct problem: integrating heterogeneous person-level information about **educational attainment**.
 
-Administrative contact addresses may:
+It is deliberately separate from the education-participation register used as an activity signal in the population workflow.
 
-- agree with the population-register address
-- disagree with it
-- disagree across auxiliary sources
-- be unavailable
+The synthetic simulation produces three attainment-source families:
 
-This allows the project to distinguish:
+- **Zensus-like 2022 delivery**
+- **BA-like 2024 delivery**
+- **Mikrozensus-like 2024 delivery**
 
-- residence-status uncertainty
-- address inconsistency
-- register undercoverage
-- register overcoverage
+These names indicate methodological source families only.
 
-without assuming that any single administrative source contains the definitive answer.
+The files are synthetic abstractions and are **not replicas of actual institutional data deliveries**.
 
 ---
 
-## 🎓 Education Attainment Extension
+## 🔐 Operational / Truth Separation
 
-Version 2.1 adds an optional subworkflow for integrating **educational-attainment evidence** from heterogeneous synthetic administrative data deliveries.
-
-The extension is deliberately separate from the `education_register.csv` used in the core population workflow:
-
-- the core education register represents **current participation / enrolment activity**
-- the Version 2.1 module represents **educational attainment (Bildungsstand)**
-
-### Processing Design
+A central design principle of the education module is the separation between operational evidence and hidden synthetic truth.
 
 ```text
 Hidden synthetic education truth
-        │
-        ├── generation and final evaluation only
-        │
-        ▼
-Heterogeneous synthetic deliveries
-        │
-        ├── Zensus-like 2022 evidence
-        ├── BA-like 2024 evidence
-        └── Mikrozensus-like 2024 evidence
-        │
-        ▼
-Delivery validation and record-level QA
-        │
-        ▼
+          │
+          ├──────── source generation
+          │
+          └──────── final evaluation
+          │
+          ✕
+          │   not available to the
+          │   operational workflow
+          │
+Observable synthetic deliveries
+          │
+          ▼
+Delivery validation and QA
+          │
+          ▼
 Source-specific harmonisation
-to common attainment ranges
-        │
-        ▼
-Same-year person-level reconciliation
-        │
-        ▼
-Longitudinal 2022 → 2024 reconciliation
-        │
-        ▼
-accepted / review_required / not_reported
-        │
-        ▼
-Synthetic truth-based evaluation
+          │
+          ▼
+Same-year consolidation
+          │
+          ▼
+Longitudinal reconciliation
+          │
+          ▼
+2024 operational attainment result
+          │
+          ▼
+Separate truth-based evaluation
 ```
 
-### Synthetic Attainment Scale
+`synthetic_education_truth.csv` is excluded from operational validation, harmonisation and reconciliation.
 
-The harmonised scale contains six ordered synthetic levels:
+Only after the operational result has been completed is hidden education truth introduced for evaluation.
+
+---
+
+## 📚 Synthetic Attainment Scale
+
+The harmonised analytical scale contains six ordered synthetic levels:
 
 1. low or none
 2. school qualification
@@ -445,127 +572,162 @@ The harmonised scale contains six ordered synthetic levels:
 5. master or equivalent
 6. doctorate
 
-This scale is deliberately simplified. It is **not an official Destatis or ISCED classification**.
+The scale is deliberately simplified.
 
-Some source observations are precise, while others are represented as ranges.
+It is **not an official Destatis or ISCED classification**.
 
-Examples include:
+Some observations represent exact attainment states, while others contain broader information represented as ranges.
+
+Examples:
 
 - precise Bachelor evidence → `4–4`
 - precise Master evidence → `5–5`
 - broad higher-education evidence → `4–6`
 - broad school/vocational evidence → `2–3`
 
-This allows heterogeneous source information to be retained without imposing artificial precision.
+Representing incomplete source information as ranges allows the workflow to retain available evidence without imposing artificial precision.
 
-### Delivery Quality Assurance
+---
 
-The validation stage checks:
+## ✅ 1. Delivery Validation and Quality Assurance
+
+The first education-processing stage checks:
 
 - required delivery schemas
 - missing person identifiers
-- invalid reference years
-- duplicate person/year records
+- invalid reference/reporting years
+- duplicate person-year observations
 - missing attainment information
 - unknown source codes
 - validity of harmonised attainment ranges
 
-All delivered records remain in the audit-oriented harmonised dataset. Only records satisfying the operational QA rules enter the reconciliation stage.
+All delivered records remain represented in the audit-oriented harmonised output.
 
-Across the three synthetic deliveries:
+Only records satisfying the operational QA rules proceed to reconciliation.
+
+### Delivery QA Results
 
 | QA outcome | Records |
 |---|---:|
-| Delivered | 29,932 |
-| Usable | 29,107 |
-| Flagged | 297 |
-| Rejected | 528 |
+| Delivered | **29,939** |
+| Usable | **29,114** |
+| Flagged | **297** |
+| Rejected | **528** |
 
-Flagged records retain missing-attainment cases for transparent QA reporting, while structurally invalid or unmapped observations are excluded from operational reconciliation.
+The distinction between usable, flagged and rejected observations preserves data-quality information instead of silently discarding every imperfect record.
 
-### Reconciliation Rules
+---
 
-The workflow deliberately avoids an arbitrary source hierarchy.
+## 🔄 2. Same-Year Evidence Consolidation
 
-Within the same reference year:
+The workflow deliberately avoids imposing a universal source hierarchy.
 
-- a single usable observation is retained
-- compatible observations are intersected to retain their common information
+Where several usable observations exist for the same person and reference year:
+
+- a single usable observation can be retained directly
+- compatible ranges are intersected
+- more precise compatible evidence can narrow a broad range
 - disjoint observations become `same_year_conflict`
-- contradictory observations are not widened into an artificial compromise range
+- conflicting observations are not widened into an artificial compromise range
 
-Across reference years:
+The current realization contains:
 
-- compatible later evidence can confirm an established state
-- compatible more precise evidence can refine a broader state
-- entirely higher later evidence is treated as `upward_progression`
-- entirely lower later evidence is treated as `temporal_regression`
-- temporal regressions retain the earlier accepted state and are routed to review
-- an earlier state is carried forward when no later observation is available
-- missing evidence is not interpreted as evidence of low attainment
+- **28,491 usable target-population evidence records**
+- **27,091 consolidated person-year records**
+- **21 same-year conflicts**
 
-Persons without usable attainment evidence therefore receive:
+---
+
+## ⏳ Longitudinal Reconciliation
+
+Person-year evidence from 2022 and 2024 is reconciled using explicit longitudinal rules.
+
+The workflow distinguishes:
+
+- confirmed attainment
+- refinement by more precise later evidence
+- upward progression
+- temporal regression
+- earlier evidence carried forward
+- unresolved same-year conflict
+- absence of usable evidence
+
+A later state that lies entirely below a previously accepted attainment state is treated as a **temporal regression**.
+
+It is routed to review rather than automatically replacing the earlier state.
+
+Likewise:
+
+> missing evidence ≠ low educational attainment
+
+Persons without sufficient usable attainment evidence therefore receive:
 
 ```text
 not_reported
 ```
 
-rather than being assigned to the lowest educational-attainment category.
+instead of being assigned automatically to the lowest educational-attainment category.
 
-### Operational Target Population
+---
 
-The education module uses a target population derived from **observable register evidence**.
+## 👥 Operational Education Target Population
 
-The operational population is based on `evidence_fallback_resident`, which uses population-register presence, activity evidence and consistent auxiliary addresses.
+The education module derives its target population from **observable population evidence**.
 
-The clarification-assisted residence estimate is deliberately not used as an education-module input because the synthetic clarification simulation depends on hidden residence truth.
+It uses the operational evidence-based population scope rather than hidden education truth.
 
-For the 2024 educational-attainment result, persons must additionally have a known age corresponding to **age 15 or older in 2024**.
+For the final 2024 educational-attainment result, persons must additionally have sufficient operational age information to belong to the relevant population aged 15 or older.
 
-This produces an operational education target population of **43,004 persons**.
+The final operational education target population contains:
+
+- **43,008 persons**
 
 ### Reconciliation Results
 
 | Final status | Persons |
 |---|---:|
-| Accepted | 23,347 |
-| Review required | 64 |
-| Not reported | 19,593 |
-| **Total** | **43,004** |
-
-The review-required cases consist of:
-
-- **48** temporal regressions
-- **11** same-year conflicts without an earlier accepted state
-- **5** same-year conflicts where the earlier state is retained pending review
-
-There are **16 same-year conflicts** in total.
+| Accepted | **23,323** |
+| Review required | **69** |
+| Not reported | **19,616** |
+| **Total** | **43,008** |
 
 The distinction between `accepted`, `review_required` and `not_reported` keeps substantive attainment information separate from data-quality and completeness problems.
 
-### Synthetic Evaluation
+---
+
+## 🧪 3. Synthetic Education Evaluation
 
 Hidden education truth is introduced only after the operational result has been completed.
 
-The operational target population and hidden 2024 education-truth population overlap for **40,773 persons**.
+### Population Alignment
 
-Population mismatch is evaluated separately from attainment quality and is not automatically counted as an attainment-classification error.
+| Measure | Persons |
+|---|---:|
+| Operational target population | 43,008 |
+| Hidden 2024 truth population | 41,690 |
+| Evaluation overlap | **40,795** |
+| Operational without hidden truth | 2,213 |
+| Hidden truth outside operational population | 895 |
 
-Among the **23,400 persons** in the overlap with a consolidated attainment range:
+Population-scope mismatch is evaluated separately rather than automatically counted as an attainment-classification error.
 
-- **22,392** contain the hidden true level within the consolidated range
-- range agreement is **95.69%**
+### Attainment Evaluation
 
-Among **11,136 exact attainment states**:
+Among persons with an evaluable attainment range:
 
-- **10,277** match the hidden true level exactly
-- exact-state agreement is **92.29%**
+- range-evaluable persons: **23,376**
+- true level inside estimated range: **22,340**
+- **range agreement: 95.57%**
 
-Accepted states achieve approximately **95.77% range agreement**.
+Among persons with an exact operational attainment state:
 
-Review-required cases with a retained attainment range show substantially lower agreement, indicating that the review rules identify observations with materially greater uncertainty.
+- exact-state persons: **11,096**
+- exact matches: **10,199**
+- **exact-state agreement: 91.92%**
 
-The evaluation is a **synthetic consistency check**, not an estimate of real-world administrative-data quality.
+These values are **synthetic consistency measures**.
+
+They are not estimates of the quality of actual administrative education data.
 
 ---
 
@@ -573,37 +735,61 @@ The evaluation is a **synthetic consistency check**, not an estimate of real-wor
 
 ```text
 register-population-estimation/
+│
+├── config/
+│   └── simulation.yml
+│
+├── python/
+│   └── simulation/
+│       ├── __init__.py
+│       ├── world.py
+│       ├── population_sources.py
+│       ├── education_truth.py
+│       ├── education_sources.py
+│       └── generate.py
+│
 ├── R/
-│   ├── 01_generate_synthetic_registers.R
-│   ├── 02_clean_and_validate_registers.R
-│   ├── 03_integrate_activity_signals.R
-│   ├── 04_estimate_population_stock.R
-│   ├── 05_visualize_results.R
+│   ├── 01_clean_and_validate_registers.R
+│   ├── 02_integrate_activity_signals.R
+│   ├── 03_estimate_population_stock.R
+│   ├── 04_visualize_results.R
+│   │
 │   └── education/
 │       ├── education_helpers.R
-│       ├── 01_generate_education_evidence.R
-│       ├── 02_validate_harmonize_education.R
-│       ├── 03_consolidate_education_attainment.R
-│       └── 04_evaluate_education_attainment.R
+│       ├── 01_validate_harmonize_education.R
+│       ├── 02_consolidate_education_attainment.R
+│       └── 03_evaluate_education_attainment.R
 │
 ├── data/
 │   ├── raw/
 │   ├── clean/
 │   ├── processed/
+│   │
 │   └── education/
 │       ├── raw/
 │       ├── clean/
 │       └── processed/
 │
 ├── output/
-│   ├── tables/
 │   ├── figures/
+│   ├── tables/
 │   └── education/
 │       └── tables/
 │
 ├── tests/
+│   ├── python/
+│   │   ├── test_world.py
+│   │   ├── test_population_sources.py
+│   │   ├── test_education_truth.py
+│   │   ├── test_education_sources.py
+│   │   ├── test_generate.py
+│   │   └── test_simulation_imports.py
+│   │
 │   └── test_education_helpers.R
 │
+├── .python-version
+├── pyproject.toml
+├── uv.lock
 ├── LICENSE
 └── README.md
 ```
@@ -614,7 +800,7 @@ register-population-estimation/
 
 ### Population Workflow
 
-The core workflow generates:
+The population workflow generates:
 
 - `population_estimation_overall.csv`
 - `population_estimation_by_region.csv`
@@ -622,11 +808,11 @@ The core workflow generates:
 - `estimation_quality_summary.csv`
 - `clarification_summary.csv`
 
-A person-level estimation dataset is written to:
+The final person-level estimation dataset is written to:
 
 - `data/processed/person_population_estimate.csv`
 
-### Education-Attainment Extension
+### Education Workflow
 
 Delivery QA and reconciliation outputs include:
 
@@ -647,7 +833,7 @@ Synthetic evaluation outputs include:
 
 ## 📊 Main Figures
 
-Version 2 produces:
+The population workflow produces:
 
 - `activity_signal_distribution.png`
 - `address_evidence_distribution.png`
@@ -656,66 +842,223 @@ Version 2 produces:
 - `estimation_quality_by_method.png`
 - `residence_clarification_targets.png`
 
+The README highlights the two figures that most directly summarize the aggregate and person-level population-estimation results.
+
 ---
 
 ## 🛠 Technologies Used
 
-The project is implemented in **R**.
+The project uses **Python and R for distinct responsibilities**.
 
-Main packages include:
+### Python — Synthetic Data Simulation
 
-- `dplyr` — data transformation and integration
-- `readr` — data input/output
-- `purrr` — functional operations used in synthetic data generation
-- `janitor` — variable-name standardization and data cleaning
-- `tidyr` — reshaping data for reporting
-- `ggplot2` — visualization
-- `scales` — plotting labels and formatting
+Main technologies:
 
-The education extension additionally uses base-R helper functions and scenario tests for explicit reconciliation behavior.
+- **Python 3.12**
+- **NumPy** — deterministic random generation and numerical operations
+- **pandas** — tabular simulation and data persistence
+- **PyYAML** — configuration loading
+- **pytest** — automated testing
+- **uv** — environment and dependency management
+
+### R — Statistical Processing
+
+Main packages:
+
+- **dplyr** — data transformation and integration
+- **readr** — data input/output
+- **janitor** — data cleaning and variable-name standardisation
+- **tidyr** — reshaping for reporting
+- **ggplot2** — visualisation
+
+The education reconciliation module additionally uses explicit base-R helper functions and scenario tests.
+
+### Development and Reproducibility
+
+- Git
+- GitHub
+- signed Git commits
+- configuration-driven simulation
+- deterministic random-number streams
+- explicit raw-data output contracts
+- automated Python tests
+- end-to-end R workflow validation
+
+---
+
+## 🧪 Testing
+
+The Python simulation layer currently contains:
+
+- **109 automated tests**
+
+The test suite covers:
+
+- synthetic world construction
+- population-source generation
+- educational-attainment truth
+- heterogeneous education-source generation
+- schema and output contracts
+- deterministic RNG ownership
+- orchestration
+- persistence safeguards
+- complete simulation-output generation
+
+The education reconciliation rules are additionally tested with:
+
+```text
+tests/test_education_helpers.R
+```
+
+The current Python-generated synthetic realization has also been processed successfully through the complete population and education R workflows.
 
 ---
 
 ## ▶️ How to Run
 
-Run the core population workflow sequentially from the repository root:
+Run all commands from the repository root.
 
-```bash
-Rscript R/01_generate_synthetic_registers.R
-Rscript R/02_clean_and_validate_registers.R
-Rscript R/03_integrate_activity_signals.R
-Rscript R/04_estimate_population_stock.R
-Rscript R/05_visualize_results.R
+### 1. Install the Python Environment
+
+The project requires:
+
+```text
+Python >= 3.12, < 3.13
 ```
 
-Then run the optional education-attainment extension:
+Create/synchronise the environment with:
 
 ```bash
-Rscript R/education/01_generate_education_evidence.R
-Rscript R/education/02_validate_harmonize_education.R
-Rscript R/education/03_consolidate_education_attainment.R
-Rscript R/education/04_evaluate_education_attainment.R
+uv sync
 ```
 
-Run the education helper tests with:
+### 2. Generate Synthetic Raw Data
+
+```bash
+uv run python -m simulation.generate
+```
+
+The generator writes the complete synthetic raw-data layer for both project modules.
+
+Population-related raw files include:
+
+```text
+data/raw/synthetic_population_truth.csv
+data/raw/address_register.csv
+data/raw/population_register.csv
+data/raw/employment_register.csv
+data/raw/tax_register.csv
+data/raw/education_register.csv
+```
+
+Education-attainment files include:
+
+```text
+data/education/raw/synthetic_education_truth.csv
+data/education/raw/zensus_2022_like_delivery.csv
+data/education/raw/ba_2024_like_delivery.csv
+data/education/raw/mikrozensus_2024_like_delivery.csv
+```
+
+### 3. Run the Population Workflow
+
+```bash
+Rscript R/01_clean_and_validate_registers.R
+Rscript R/02_integrate_activity_signals.R
+Rscript R/03_estimate_population_stock.R
+Rscript R/04_visualize_results.R
+```
+
+### 4. Run the Education Workflow
+
+```bash
+Rscript R/education/01_validate_harmonize_education.R
+Rscript R/education/02_consolidate_education_attainment.R
+Rscript R/education/03_evaluate_education_attainment.R
+```
+
+### 5. Run Python Tests
+
+```bash
+uv run pytest -q
+```
+
+Expected current result:
+
+```text
+109 passed
+```
+
+### 6. Run Education Helper Tests in R
 
 ```bash
 Rscript tests/test_education_helpers.R
 ```
 
-Generated files are stored in:
+---
 
-- `data/raw/`
-- `data/clean/`
-- `data/processed/`
-- `data/education/`
-- `output/tables/`
-- `output/figures/`
-- `output/education/tables/`
+## ♻️ Reproducibility
 
-Because the workflow uses fixed random seeds, the synthetic results are reproducible.
+The project uses fixed configuration and deterministic random-number streams.
 
-The education generator creates the synthetic source deliveries and hidden benchmark. Scripts 02 and 03 form the operational, truth-free processing workflow for delivery validation, harmonisation and attainment reconciliation. Hidden education truth is used only during synthetic data generation and in the separate evaluation stage.
+With an unchanged environment and `config/simulation.yml`, repeated Python generation produces the same raw synthetic realization.
+
+The analytical workflow is then applied sequentially:
+
+```text
+configuration
+      ↓
+Python simulation
+      ↓
+raw synthetic sources
+      ↓
+R validation and QA
+      ↓
+integration / reconciliation
+      ↓
+population and education outputs
+      ↓
+synthetic evaluation
+```
+
+This provides a transparent separation between:
+
+- assumptions
+- generated source data
+- operational processing
+- evaluation
+- reporting
+
+---
+
+## 📚 Methodological Context
+
+The project is motivated by methodological challenges discussed in German register-based official statistics.
+
+Particularly relevant themes include:
+
+- use of heterogeneous administrative and statistical sources
+- population-register undercoverage and overcoverage
+- additional administrative evidence for population statistics
+- person-level data integration
+- quality assurance of incoming deliveries
+- integration of educational-attainment information from multiple sources
+- harmonisation of different source classifications
+- use of longitudinal information
+- explicit treatment of uncertainty and missing information
+
+Relevant methodological background includes:
+
+- **Grimm, Eva; Herzog, Olga; Rheiner, Sarah (2022): _Das Bildungsmodul des Registerzensus_. WISTA – Wirtschaft und Statistik, 4/2022.**
+- **Söllner, René; Körner, Thomas (2022): _Der Registerzensus: Ziele, Anforderungen und Umsetzungsansätze_. WISTA – Wirtschaft und Statistik, 4/2022.**
+- **Statistisches Bundesamt (Destatis): _Wie funktioniert der Registerzensus?_**
+- **Statistisches Bundesamt (Destatis): _Die Methode hinter dem Zensus 2022_.**
+
+These publications provide **methodological context and inspiration only**.
+
+The source systems, classifications, algorithms, simulation parameters and outputs in this repository were constructed independently for this synthetic portfolio project.
+
+No claim is made that the implemented rules reproduce the official Registerzensus, Zensus 2022 or educational-module methodology.
 
 ---
 
@@ -725,19 +1068,26 @@ This repository is a synthetic methodological demonstration.
 
 Key limitations include:
 
-- simulation parameters are illustrative rather than empirically estimated
+- simulation parameters are illustrative rather than empirically estimated for Germany
 - administrative sources are simplified representations of real systems
-- person identifiers allow deterministic linkage
+- synthetic person identifiers allow deterministic linkage
 - no probabilistic record linkage is required
 - clarification outcomes are simulated
+- hidden residence truth is required for the synthetic clarification experiment and evaluation
 - some true residents are absent from every observable data source
-- auxiliary-only persons generally lack operational demographic information such as age
-- the educational-attainment scale is simplified and synthetic rather than an official ISCED or Destatis classification
-- education-source mappings and delivery-error rates are illustrative assumptions
-- the education module models attainment integration rather than the institutional infrastructure of an educational register
-- the workflow does not reproduce the institutional, legal or production architecture of official German population statistics
+- auxiliary-only persons can lack operational demographic information required for some analyses
+- the educational-attainment scale is simplified and synthetic
+- the scale is not an official ISCED or Destatis production classification
+- education-source mappings and delivery-error rates are illustrative
+- the education module does not model the full institutional, legal or IT infrastructure of a statistical register
+- no real personal or administrative data are used
+- the workflow does not reproduce the institutional or production architecture of official German population statistics
 
-The project should therefore be interpreted as an applied **data-integration, quality-assurance and estimation exercise** rather than as a replication of an official statistical procedure.
+The project should therefore be interpreted as an applied exercise in:
+
+**data integration · statistical quality assurance · harmonisation · reproducibility · uncertainty handling · population estimation**
+
+rather than as a replication of an official statistical procedure.
 
 ---
 
@@ -745,14 +1095,19 @@ The project should therefore be interpreted as an applied **data-integration, qu
 
 Potential methodological extensions include:
 
-- sensitivity analysis for clarification-response and accuracy assumptions
+- sensitivity analysis of clarification-response and accuracy assumptions
 - additional synthetic administrative data sources
-- more complex temporal activity histories
-- probabilistic or privacy-preserving record linkage
-- longitudinal population-stock estimation
+- richer temporal activity histories
 - additional educational-attainment reference years
 - more detailed educational classifications
 - alternative uncertainty and reconciliation rules
+- longitudinal population-stock estimation
+- probabilistic record linkage
+- privacy-preserving linkage approaches
+- explicit uncertainty propagation
+- expanded automated validation of incoming data deliveries
+
+These extensions are intentionally outside the current project scope.
 
 ---
 
@@ -771,4 +1126,4 @@ Applied Data Scientist | Official Statistics | Econometrics
 **Email:** gsanaev80@gmail.com<br>
 **LinkedIn:** https://www.linkedin.com/in/golib-sanaev/
 
-This project was developed as a portfolio demonstration of reproducible data integration, statistical validation and population-estimation methods using synthetic administrative data.
+This project was developed as a portfolio demonstration of reproducible multi-source data integration, statistical quality assurance, harmonisation and population-estimation methods using fully synthetic data.
