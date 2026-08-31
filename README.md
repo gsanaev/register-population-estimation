@@ -1,4 +1,4 @@
-# 📊 Register-Based Population and Education Data Integration
+# 📊 Register-Based Population Estimation and Education Data Integration
 
 A reproducible **Python + R** workflow for synthetic register-based population estimation, multi-source data integration, quality assurance and educational-attainment reconciliation.
 
