@@ -1,2 +1,2 @@
 overlap_persons,accepted_persons,review_required_persons,not_reported_persons,range_evaluable_persons,range_coverage_rate,range_agreement_persons,range_agreement_rate,exact_state_persons,exact_match_persons,exact_state_agreement_rate,broad_range_persons,mean_range_width,unresolved_review_without_range
-40773,23347,64,17362,23400,0.5739092046207048,22392,0.9569230769230769,11136,10277,0.9228627873563219,12264,0.6922649572649566,11
+40795,23323,69,17403,23376,0.5730113984556932,22340,0.9556810403832992,11096,10199,0.9191600576784427,12280,0.688569472963724,16

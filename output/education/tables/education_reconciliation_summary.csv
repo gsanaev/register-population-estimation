@@ -1,9 +1,9 @@
 attainment_status,decision_reason,persons,target_population,share_of_target_population
-accepted,initial_observation,15644,43004,0.363780113477816
-accepted,carry_forward,4034,43004,0.09380522742070505
-accepted,compatible_retained,3423,43004,0.07959724676774253
-accepted,upward_progression,246,43004,0.0057203981025020926
-review_required,temporal_regression,48,43004,0.0011161752395126034
-review_required,same_year_conflict,11,43004,2.5579015905497166e-4
-review_required,same_year_conflict_retained_prior,5,43004,1.1626825411589619e-4
-not_reported,no_usable_evidence,19593,43004,0.4556087805785508
+accepted,initial_observation,15622,43008,0.36323474702380953
+accepted,carry_forward,4055,43008,0.09428478422619048
+accepted,compatible_retained,3380,43008,0.07859002976190477
+accepted,upward_progression,266,43008,0.006184895833333333
+review_required,temporal_regression,48,43008,0.0011160714285714285
+review_required,same_year_conflict,16,43008,3.720238095238095e-4
+review_required,same_year_conflict_retained_prior,5,43008,1.1625744047619047e-4
+not_reported,no_usable_evidence,19616,43008,0.45610119047619047

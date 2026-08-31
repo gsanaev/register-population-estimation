@@ -1,6 +1,6 @@
 measure,persons
-operational_target_persons,43004
-hidden_truth_persons,41626
-overlap_persons,40773
-operational_without_truth,2231
-truth_outside_operational,853
+operational_target_persons,43008
+hidden_truth_persons,41690
+overlap_persons,40795
+operational_without_truth,2213
+truth_outside_operational,895
