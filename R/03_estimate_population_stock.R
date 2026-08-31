@@ -1,10 +1,10 @@
 # =====================================================================
-# 04_estimate_population_stock.R
+# 03_estimate_population_stock.R
 # Population Stock Estimation and Synthetic Clarification
 # Version 2
 # ---------------------------------------------------------------------
 # This script converts the integrated person/address evidence created in
-# 03_integrate_activity_signals.R into population-stock estimates.
+# 02_integrate_activity_signals.R into population-stock estimates.
 #
 # It performs:
 #   - construction of a population-register baseline

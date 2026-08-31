@@ -1,5 +1,5 @@
 # =====================================================================
-# 04_evaluate_education_attainment.R
+# 03_evaluate_education_attainment.R
 # Evaluate Synthetic Educational-Attainment Consolidation
 # ---------------------------------------------------------------------
 # This script evaluates the completed operational 2024 attainment

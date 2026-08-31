@@ -1,5 +1,5 @@
 # =====================================================================
-# 03_consolidate_education_attainment.R
+# 02_consolidate_education_attainment.R
 # Consolidate Synthetic Educational-Attainment Evidence
 # ---------------------------------------------------------------------
 # This workflow integrates harmonised person-level education evidence

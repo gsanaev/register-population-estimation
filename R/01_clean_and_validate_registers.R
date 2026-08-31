@@ -1,5 +1,5 @@
 # =====================================================================
-# 02_clean_and_validate_registers.R
+# 01_clean_and_validate_registers.R
 # Cleaning, Plausibility Checks, and Validation of Synthetic Registers
 # Version 2
 # ---------------------------------------------------------------------

@@ -1,5 +1,5 @@
 # =====================================================================
-# 03_integrate_activity_signals.R
+# 02_integrate_activity_signals.R
 # Integration of Cleaned Registers and Construction of Evidence Features
 # Version 2
 # ---------------------------------------------------------------------

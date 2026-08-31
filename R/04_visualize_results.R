@@ -1,5 +1,5 @@
 # =====================================================================
-# 05_visualize_results.R
+# 04_visualize_results.R
 # Visualization of Register-Based Population Estimation Results
 # Version 2
 # ---------------------------------------------------------------------
