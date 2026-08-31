@@ -16,6 +16,7 @@ from simulation.generate import (
     DEFAULT_CONFIG_PATH,
     OUTPUT_PATHS,
     POPULATION_RNG_COMPONENT_IDS,
+    build_persisted_population_truth,
     education_rng,
     generate_education_attainment_sources,
     generate_population_sources,
@@ -910,3 +911,212 @@ def test_write_simulation_outputs_requires_exact_contract(
             incomplete,
             tmp_path,
         )
+
+
+def test_build_persisted_population_truth_contract() -> None:
+    config = load_config()
+
+    world = generate_population_world(
+        config
+    )
+
+    sources = generate_population_sources(
+        config,
+        world,
+    )
+
+    truth = build_persisted_population_truth(
+        world[
+            "population_truth"
+        ],
+        sources[
+            "population_register"
+        ],
+    )
+
+    assert list(
+        truth.columns
+    ) == [
+        "person_id",
+        "true_resident",
+        "sex",
+        "age",
+        "age_group",
+        "citizenship_group",
+        "true_household_id",
+        "true_address_id",
+        "true_region_code",
+        "true_municipality_code",
+        "former_household_id",
+        "former_address_id",
+        "former_region_code",
+        "former_municipality_code",
+        "departure_date_true",
+        "in_population_register",
+        "coverage_status_true",
+        "overcoverage_flag_true",
+        "undercoverage_flag_true",
+        "registered_household_id_sim",
+        "registered_address_id_sim",
+        "registered_region_code_sim",
+        "registered_municipality_code_sim",
+    ]
+
+
+def test_build_persisted_population_truth_matches_register_membership() -> None:
+    config = load_config()
+
+    world = generate_population_world(
+        config
+    )
+
+    sources = generate_population_sources(
+        config,
+        world,
+    )
+
+    truth = build_persisted_population_truth(
+        world[
+            "population_truth"
+        ],
+        sources[
+            "population_register"
+        ],
+    )
+
+    registered_ids = set(
+        sources[
+            "population_register"
+        ][
+            "person_id"
+        ]
+    )
+
+    expected_membership = (
+        truth[
+            "person_id"
+        ]
+        .isin(
+            registered_ids
+        )
+        .astype(int)
+    )
+
+    np.testing.assert_array_equal(
+        truth[
+            "in_population_register"
+        ],
+        expected_membership,
+    )
+
+    expected_status = np.select(
+        [
+            truth[
+                "true_resident"
+            ].eq(1)
+            & expected_membership.eq(1),
+
+            truth[
+                "true_resident"
+            ].eq(1)
+            & expected_membership.eq(0),
+
+            truth[
+                "true_resident"
+            ].eq(0)
+            & expected_membership.eq(1),
+        ],
+        [
+            "correctly_registered",
+            "undercoverage",
+            "overcoverage",
+        ],
+        default="correctly_absent",
+    )
+
+    np.testing.assert_array_equal(
+        truth[
+            "coverage_status_true"
+        ],
+        expected_status,
+    )
+
+
+def test_build_persisted_population_truth_registered_locations() -> None:
+    config = load_config()
+
+    world = generate_population_world(
+        config
+    )
+
+    sources = generate_population_sources(
+        config,
+        world,
+    )
+
+    truth = build_persisted_population_truth(
+        world[
+            "population_truth"
+        ],
+        sources[
+            "population_register"
+        ],
+    )
+
+    residents = truth[
+        "true_resident"
+    ].eq(1)
+
+    former = ~residents
+
+    assert (
+        truth.loc[
+            residents,
+            "registered_household_id_sim",
+        ]
+        .equals(
+            truth.loc[
+                residents,
+                "true_household_id",
+            ]
+        )
+    )
+
+    assert (
+        truth.loc[
+            former,
+            "registered_household_id_sim",
+        ]
+        .equals(
+            truth.loc[
+                former,
+                "former_household_id",
+            ]
+        )
+    )
+
+    assert (
+        truth.loc[
+            residents,
+            "registered_address_id_sim",
+        ]
+        .equals(
+            truth.loc[
+                residents,
+                "true_address_id",
+            ]
+        )
+    )
+
+    assert (
+        truth.loc[
+            former,
+            "registered_address_id_sim",
+        ]
+        .equals(
+            truth.loc[
+                former,
+                "former_address_id",
+            ]
+        )
+    )

@@ -618,11 +618,20 @@ def generate_simulation_outputs(
         )
     )
 
-    outputs = {
-        "population_truth":
+    persisted_population_truth = (
+        build_persisted_population_truth(
             population_world[
                 "population_truth"
             ],
+            population_sources[
+                "population_register"
+            ],
+        )
+    )
+
+    outputs = {
+        "population_truth":
+            persisted_population_truth,
         "address_register":
             population_world[
                 "address_register"
@@ -769,3 +778,124 @@ def write_simulation_outputs(
         ] = output_path
 
     return written_paths
+
+
+def build_persisted_population_truth(
+    population_truth: Any,
+    population_register: Any,
+) -> Any:
+    """Add evaluation-only population-register truth fields."""
+
+    persisted_truth = population_truth.copy()
+
+    registered_ids = set(
+        population_register[
+            "person_id"
+        ]
+    )
+
+    persisted_truth[
+        "in_population_register"
+    ] = (
+        persisted_truth[
+            "person_id"
+        ]
+        .isin(
+            registered_ids
+        )
+        .astype(int)
+    )
+
+    true_resident = persisted_truth[
+        "true_resident"
+    ].eq(1)
+
+    in_register = persisted_truth[
+        "in_population_register"
+    ].eq(1)
+
+    persisted_truth[
+        "coverage_status_true"
+    ] = np.select(
+        [
+            true_resident & in_register,
+            true_resident & ~in_register,
+            ~true_resident & in_register,
+        ],
+        [
+            "correctly_registered",
+            "undercoverage",
+            "overcoverage",
+        ],
+        default="correctly_absent",
+    )
+
+    persisted_truth[
+        "overcoverage_flag_true"
+    ] = (
+        persisted_truth[
+            "coverage_status_true"
+        ]
+        .eq(
+            "overcoverage"
+        )
+        .astype(int)
+    )
+
+    persisted_truth[
+        "undercoverage_flag_true"
+    ] = (
+        persisted_truth[
+            "coverage_status_true"
+        ]
+        .eq(
+            "undercoverage"
+        )
+        .astype(int)
+    )
+
+    persisted_truth[
+        "registered_household_id_sim"
+    ] = persisted_truth[
+        "true_household_id"
+    ].where(
+        true_resident,
+        persisted_truth[
+            "former_household_id"
+        ],
+    )
+
+    persisted_truth[
+        "registered_address_id_sim"
+    ] = persisted_truth[
+        "true_address_id"
+    ].where(
+        true_resident,
+        persisted_truth[
+            "former_address_id"
+        ],
+    )
+
+    persisted_truth[
+        "registered_region_code_sim"
+    ] = persisted_truth[
+        "true_region_code"
+    ].where(
+        true_resident,
+        persisted_truth[
+            "former_region_code"
+        ],
+    )
+
+    persisted_truth[
+        "registered_municipality_code_sim"
+    ] = persisted_truth[
+        "true_municipality_code"
+    ].where(
+        true_resident,
+        persisted_truth[
+            "former_municipality_code"
+        ],
+    )
+
+    return persisted_truth
