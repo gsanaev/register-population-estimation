@@ -4,10 +4,20 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from simulation.education_sources import (
+    BA_2024_COLUMNS,
+    MIKROZENSUS_2024_COLUMNS,
+    ZENSUS_2022_COLUMNS,
+)
+from simulation.education_truth import (
+    EDUCATION_TRUTH_COLUMNS,
+)
 from simulation.generate import (
     DEFAULT_CONFIG_PATH,
     OUTPUT_PATHS,
     POPULATION_RNG_COMPONENT_IDS,
+    education_rng,
+    generate_education_attainment_sources,
     generate_population_sources,
     generate_population_world,
     load_config,
@@ -516,6 +526,244 @@ def test_generate_population_sources_do_not_write_files(
     )
 
     generate_population_sources(
+        config,
+        world,
+    )
+
+    assert not list(
+        tmp_path.rglob(
+            "*.csv"
+        )
+    )
+
+
+def test_education_rng_uses_configured_seeds() -> None:
+    config = load_config()
+
+    expected = {
+        "education_truth": 2027,
+        "zensus_2022": 20221,
+        "ba_2024": 20241,
+        "mikrozensus_2024": 20242,
+    }
+
+    for component, seed in expected.items():
+        actual = education_rng(
+            config,
+            component,
+        ).integers(
+            0,
+            1_000_000,
+            size=20,
+        )
+
+        direct = np.random.default_rng(
+            seed
+        ).integers(
+            0,
+            1_000_000,
+            size=20,
+        )
+
+        np.testing.assert_array_equal(
+            actual,
+            direct,
+        )
+
+
+def test_education_rng_rejects_unknown_component() -> None:
+    config = load_config()
+
+    with pytest.raises(
+        ValueError,
+        match="Unknown education RNG component",
+    ):
+        education_rng(
+            config,
+            "not_a_component",
+        )
+
+
+def test_generate_education_attainment_sources_contract() -> None:
+    config = load_config()
+
+    world = generate_population_world(
+        config
+    )
+
+    education = (
+        generate_education_attainment_sources(
+            config,
+            world,
+        )
+    )
+
+    assert set(education) == {
+        "education_truth",
+        "zensus_2022",
+        "ba_2024",
+        "mikrozensus_2024",
+    }
+
+    assert list(
+        education[
+            "education_truth"
+        ].columns
+    ) == EDUCATION_TRUTH_COLUMNS
+
+    assert list(
+        education[
+            "zensus_2022"
+        ].columns
+    ) == ZENSUS_2022_COLUMNS
+
+    assert list(
+        education[
+            "ba_2024"
+        ].columns
+    ) == BA_2024_COLUMNS
+
+    assert list(
+        education[
+            "mikrozensus_2024"
+        ].columns
+    ) == MIKROZENSUS_2024_COLUMNS
+
+
+def test_generate_education_attainment_sources_scope() -> None:
+    config = load_config()
+
+    world = generate_population_world(
+        config
+    )
+
+    education = (
+        generate_education_attainment_sources(
+            config,
+            world,
+        )
+    )
+
+    population_truth = world[
+        "population_truth"
+    ]
+
+    true_resident_ids = set(
+        population_truth.loc[
+            population_truth[
+                "true_resident"
+            ].eq(1),
+            "person_id",
+        ]
+    )
+
+    education_truth = education[
+        "education_truth"
+    ]
+
+    assert set(
+        education_truth[
+            "person_id"
+        ]
+    ).issubset(
+        true_resident_ids
+    )
+
+    truth_2022_ids = set(
+        education_truth.loc[
+            education_truth[
+                "reference_year"
+            ].eq(2022),
+            "person_id",
+        ]
+    )
+
+    truth_2024_ids = set(
+        education_truth.loc[
+            education_truth[
+                "reference_year"
+            ].eq(2024),
+            "person_id",
+        ]
+    )
+
+    assert set(
+        education[
+            "zensus_2022"
+        ][
+            "person_id"
+        ].dropna()
+    ).issubset(
+        truth_2022_ids
+    )
+
+    for source_name in (
+        "ba_2024",
+        "mikrozensus_2024",
+    ):
+        assert set(
+            education[
+                source_name
+            ][
+                "person_id"
+            ].dropna()
+        ).issubset(
+            truth_2024_ids
+        )
+
+
+def test_generate_education_attainment_sources_are_reproducible() -> None:
+    config = load_config()
+
+    world = generate_population_world(
+        config
+    )
+
+    first = (
+        generate_education_attainment_sources(
+            config,
+            world,
+        )
+    )
+
+    second = (
+        generate_education_attainment_sources(
+            config,
+            world,
+        )
+    )
+
+    for source_name in (
+        "education_truth",
+        "zensus_2022",
+        "ba_2024",
+        "mikrozensus_2024",
+    ):
+        pd.testing.assert_frame_equal(
+            first[
+                source_name
+            ],
+            second[
+                source_name
+            ],
+        )
+
+
+def test_generate_education_attainment_sources_do_not_write_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_config()
+
+    world = generate_population_world(
+        config
+    )
+
+    monkeypatch.chdir(
+        tmp_path
+    )
+
+    generate_education_attainment_sources(
         config,
         world,
     )

@@ -7,6 +7,14 @@ from typing import Any
 import numpy as np
 import yaml
 
+from .education_sources import (
+    generate_ba_2024_delivery,
+    generate_mikrozensus_2024_delivery,
+    generate_zensus_2022_delivery,
+)
+from .education_truth import (
+    generate_education_truth,
+)
 from .population_sources import (
     generate_education_register,
     generate_employment_register,
@@ -443,4 +451,143 @@ def generate_population_sources(
             tax_register,
         "education_register":
             education_register,
+    }
+
+
+def education_rng(
+    config: Mapping[str, Any],
+    component: str,
+) -> np.random.Generator:
+    """Create a configured RNG for one education simulation component."""
+
+    education_config = config.get(
+        "education"
+    )
+
+    if not isinstance(
+        education_config,
+        Mapping,
+    ):
+        raise ValueError(
+            "Configuration must contain an education section."
+        )
+
+    if component == "education_truth":
+        seed = education_config.get(
+            "truth_seed"
+        )
+    elif component in {
+        "zensus_2022",
+        "ba_2024",
+        "mikrozensus_2024",
+    }:
+        source_config = education_config.get(
+            component
+        )
+
+        if not isinstance(
+            source_config,
+            Mapping,
+        ):
+            raise ValueError(
+                f"education must contain a {component} section."
+            )
+
+        seed = source_config.get(
+            "seed"
+        )
+    else:
+        raise ValueError(
+            f"Unknown education RNG component: {component}"
+        )
+
+    if (
+        isinstance(
+            seed,
+            bool,
+        )
+        or not isinstance(
+            seed,
+            int,
+        )
+        or seed < 0
+    ):
+        raise ValueError(
+            f"Seed for {component} must be "
+            "a non-negative integer."
+        )
+
+    return np.random.default_rng(
+        seed
+    )
+
+
+def generate_education_attainment_sources(
+    config: Mapping[str, Any],
+    population_world: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Generate hidden attainment truth and all raw attainment sources."""
+
+    if "population_truth" not in population_world:
+        raise ValueError(
+            "Population world is missing population_truth."
+        )
+
+    population_truth = population_world[
+        "population_truth"
+    ]
+
+    education_truth = (
+        generate_education_truth(
+            population_truth,
+            config,
+            education_rng(
+                config,
+                "education_truth",
+            ),
+        )
+    )
+
+    zensus_2022 = (
+        generate_zensus_2022_delivery(
+            education_truth,
+            config,
+            education_rng(
+                config,
+                "zensus_2022",
+            ),
+        )
+    )
+
+    ba_2024 = (
+        generate_ba_2024_delivery(
+            education_truth,
+            config,
+            education_rng(
+                config,
+                "ba_2024",
+            ),
+        )
+    )
+
+    mikrozensus_2024 = (
+        generate_mikrozensus_2024_delivery(
+            education_truth,
+            config,
+            education_rng(
+                config,
+                "mikrozensus_2024",
+            ),
+        )
+    )
+
+    return {
+        "education_truth":
+            education_truth,
+        "zensus_2022":
+            zensus_2022,
+        "ba_2024":
+            ba_2024,
+        "mikrozensus_2024":
+            mikrozensus_2024,
     }
