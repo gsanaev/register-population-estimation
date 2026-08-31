@@ -1,12 +1,14 @@
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from simulation.generate import (
     DEFAULT_CONFIG_PATH,
     OUTPUT_PATHS,
     POPULATION_RNG_COMPONENT_IDS,
+    generate_population_world,
     load_config,
     population_rng,
 )
@@ -193,3 +195,127 @@ def test_population_rng_rejects_unknown_component() -> None:
             config,
             "not_a_component",
         )
+
+
+def test_generate_population_world_contract_and_counts() -> None:
+    config = load_config()
+
+    world = generate_population_world(
+        config
+    )
+
+    assert set(world) == {
+        "regions",
+        "age_bands",
+        "address_register",
+        "households",
+        "true_residents",
+        "former_residents",
+        "population_truth",
+    }
+
+    n_true_residents = config[
+        "population"
+    ][
+        "n_true_residents"
+    ]
+
+    n_former_residents = config[
+        "population"
+    ][
+        "n_former_residents"
+    ]
+
+    assert len(
+        world[
+            "true_residents"
+        ]
+    ) == n_true_residents
+
+    assert len(
+        world[
+            "former_residents"
+        ]
+    ) == n_former_residents
+
+    assert len(
+        world[
+            "population_truth"
+        ]
+    ) == (
+        n_true_residents
+        + n_former_residents
+    )
+
+    assert world[
+        "population_truth"
+    ][
+        "person_id"
+    ].is_unique
+
+    assert int(
+        world[
+            "population_truth"
+        ][
+            "true_resident"
+        ].sum()
+    ) == n_true_residents
+
+    assert world[
+        "households"
+    ][
+        "household_id"
+    ].is_unique
+
+    assert world[
+        "address_register"
+    ][
+        "address_id"
+    ].is_unique
+
+
+def test_generate_population_world_is_reproducible() -> None:
+    config = load_config()
+
+    first = generate_population_world(
+        config
+    )
+
+    second = generate_population_world(
+        config
+    )
+
+    for key in (
+        "regions",
+        "age_bands",
+        "address_register",
+        "households",
+        "true_residents",
+        "former_residents",
+        "population_truth",
+    ):
+        pd.testing.assert_frame_equal(
+            first[key],
+            second[key],
+        )
+
+
+def test_generate_population_world_does_not_write_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_config()
+
+    monkeypatch.chdir(
+        tmp_path
+    )
+
+    generate_population_world(
+        config
+    )
+
+    assert not list(
+        tmp_path.rglob(
+            "*.csv"
+        )
+    )

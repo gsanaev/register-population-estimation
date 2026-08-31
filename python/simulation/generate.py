@@ -7,6 +7,16 @@ from typing import Any
 import numpy as np
 import yaml
 
+from .world import (
+    build_age_bands,
+    build_population_truth,
+    build_regions,
+    generate_address_register,
+    generate_former_residents,
+    generate_households,
+    generate_true_residents,
+)
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -203,3 +213,119 @@ def population_rng(
     return np.random.default_rng(
         seed_sequence
     )
+
+
+def generate_population_world(
+    config: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Generate the complete hidden synthetic population world in memory."""
+
+    population_config = config.get(
+        "population"
+    )
+
+    if not isinstance(
+        population_config,
+        Mapping,
+    ):
+        raise ValueError(
+            "Configuration must contain a population section."
+        )
+
+    n_true_residents = (
+        population_config.get(
+            "n_true_residents"
+        )
+    )
+
+    if (
+        isinstance(
+            n_true_residents,
+            bool,
+        )
+        or not isinstance(
+            n_true_residents,
+            int,
+        )
+        or n_true_residents <= 0
+    ):
+        raise ValueError(
+            "population.n_true_residents must be "
+            "a positive integer."
+        )
+
+    regions = build_regions(
+        config
+    )
+
+    age_bands = build_age_bands(
+        config
+    )
+
+    address_register = (
+        generate_address_register(
+            regions,
+            config,
+            population_rng(
+                config,
+                "address_register",
+            ),
+        )
+    )
+
+    households = generate_households(
+        n_true_residents,
+        address_register,
+        config,
+        population_rng(
+            config,
+            "households",
+        ),
+    )
+
+    true_residents = (
+        generate_true_residents(
+            households,
+            age_bands,
+            config,
+            population_rng(
+                config,
+                "true_residents",
+            ),
+        )
+    )
+
+    former_residents = (
+        generate_former_residents(
+            households,
+            age_bands,
+            config,
+            population_rng(
+                config,
+                "former_residents",
+            ),
+        )
+    )
+
+    population_truth = (
+        build_population_truth(
+            true_residents,
+            former_residents,
+            config,
+        )
+    )
+
+    return {
+        "regions": regions,
+        "age_bands": age_bands,
+        "address_register":
+            address_register,
+        "households":
+            households,
+        "true_residents":
+            true_residents,
+        "former_residents":
+            former_residents,
+        "population_truth":
+            population_truth,
+    }
