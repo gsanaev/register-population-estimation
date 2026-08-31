@@ -8,9 +8,16 @@ from simulation.generate import (
     DEFAULT_CONFIG_PATH,
     OUTPUT_PATHS,
     POPULATION_RNG_COMPONENT_IDS,
+    generate_population_sources,
     generate_population_world,
     load_config,
     population_rng,
+)
+from simulation.population_sources import (
+    EDUCATION_REGISTER_COLUMNS,
+    EMPLOYMENT_REGISTER_COLUMNS,
+    POPULATION_REGISTER_COLUMNS,
+    TAX_REGISTER_COLUMNS,
 )
 
 
@@ -312,6 +319,205 @@ def test_generate_population_world_does_not_write_files(
 
     generate_population_world(
         config
+    )
+
+    assert not list(
+        tmp_path.rglob(
+            "*.csv"
+        )
+    )
+
+
+def test_generate_population_sources_contract() -> None:
+    config = load_config()
+
+    world = generate_population_world(
+        config
+    )
+
+    sources = generate_population_sources(
+        config,
+        world,
+    )
+
+    assert set(sources) == {
+        "population_register",
+        "employment_register",
+        "tax_register",
+        "education_register",
+    }
+
+    assert list(
+        sources[
+            "population_register"
+        ].columns
+    ) == POPULATION_REGISTER_COLUMNS
+
+    assert list(
+        sources[
+            "employment_register"
+        ].columns
+    ) == EMPLOYMENT_REGISTER_COLUMNS
+
+    assert list(
+        sources[
+            "tax_register"
+        ].columns
+    ) == TAX_REGISTER_COLUMNS
+
+    assert list(
+        sources[
+            "education_register"
+        ].columns
+    ) == EDUCATION_REGISTER_COLUMNS
+
+
+def test_generate_population_sources_person_scope() -> None:
+    config = load_config()
+
+    world = generate_population_world(
+        config
+    )
+
+    sources = generate_population_sources(
+        config,
+        world,
+    )
+
+    truth_ids = set(
+        world[
+            "population_truth"
+        ][
+            "person_id"
+        ]
+    )
+
+    for source_name in (
+        "population_register",
+        "employment_register",
+        "tax_register",
+        "education_register",
+    ):
+        source = sources[
+            source_name
+        ]
+
+        assert source[
+            "person_id"
+        ].is_unique
+
+        assert set(
+            source[
+                "person_id"
+            ]
+        ).issubset(
+            truth_ids
+        )
+
+
+def test_generate_population_sources_contact_addresses_are_valid() -> None:
+    config = load_config()
+
+    world = generate_population_world(
+        config
+    )
+
+    sources = generate_population_sources(
+        config,
+        world,
+    )
+
+    valid_address_ids = set(
+        world[
+            "address_register"
+        ][
+            "address_id"
+        ]
+    )
+
+    for source_name in (
+        "employment_register",
+        "tax_register",
+        "education_register",
+    ):
+        observed_addresses = set(
+            sources[
+                source_name
+            ][
+                "contact_address_id"
+            ].dropna()
+        )
+
+        assert observed_addresses.issubset(
+            valid_address_ids
+        )
+
+
+def test_generate_population_sources_are_reproducible() -> None:
+    config = load_config()
+
+    world = generate_population_world(
+        config
+    )
+
+    first = generate_population_sources(
+        config,
+        world,
+    )
+
+    second = generate_population_sources(
+        config,
+        world,
+    )
+
+    for source_name in (
+        "population_register",
+        "employment_register",
+        "tax_register",
+        "education_register",
+    ):
+        pd.testing.assert_frame_equal(
+            first[
+                source_name
+            ],
+            second[
+                source_name
+            ],
+        )
+
+
+def test_generate_population_sources_require_world_contract() -> None:
+    config = load_config()
+
+    with pytest.raises(
+        ValueError,
+        match="missing source-generation fields",
+    ):
+        generate_population_sources(
+            config,
+            {
+                "population_truth": None,
+            },
+        )
+
+
+def test_generate_population_sources_do_not_write_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_config()
+
+    world = generate_population_world(
+        config
+    )
+
+    monkeypatch.chdir(
+        tmp_path
+    )
+
+    generate_population_sources(
+        config,
+        world,
     )
 
     assert not list(

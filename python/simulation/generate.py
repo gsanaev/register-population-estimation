@@ -7,6 +7,12 @@ from typing import Any
 import numpy as np
 import yaml
 
+from .population_sources import (
+    generate_education_register,
+    generate_employment_register,
+    generate_population_register,
+    generate_tax_register,
+)
 from .world import (
     build_age_bands,
     build_population_truth,
@@ -328,4 +334,113 @@ def generate_population_world(
             former_residents,
         "population_truth":
             population_truth,
+    }
+
+
+def generate_population_sources(
+    config: Mapping[str, Any],
+    population_world: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Generate all observable population-side sources in memory."""
+
+    required_world_keys = {
+        "age_bands",
+        "address_register",
+        "population_truth",
+    }
+
+    missing_keys = (
+        required_world_keys
+        - set(population_world)
+    )
+
+    if missing_keys:
+        raise ValueError(
+            "Population world is missing source-generation fields: "
+            + ", ".join(
+                sorted(missing_keys)
+            )
+        )
+
+    age_bands = population_world[
+        "age_bands"
+    ]
+
+    address_register = population_world[
+        "address_register"
+    ]
+
+    population_truth = population_world[
+        "population_truth"
+    ]
+
+    population_register = (
+        generate_population_register(
+            population_truth,
+            age_bands,
+            config,
+            population_rng(
+                config,
+                "population_register",
+            ),
+        )
+    )
+
+    employment_register = (
+        generate_employment_register(
+            population_truth,
+            address_register,
+            config,
+            population_rng(
+                config,
+                "employment_register",
+            ),
+            population_rng(
+                config,
+                "employment_contact_address",
+            ),
+        )
+    )
+
+    tax_register = (
+        generate_tax_register(
+            population_truth,
+            address_register,
+            config,
+            population_rng(
+                config,
+                "tax_register",
+            ),
+            population_rng(
+                config,
+                "tax_contact_address",
+            ),
+        )
+    )
+
+    education_register = (
+        generate_education_register(
+            population_truth,
+            address_register,
+            config,
+            population_rng(
+                config,
+                "education_register",
+            ),
+            population_rng(
+                config,
+                "education_contact_address",
+            ),
+        )
+    )
+
+    return {
+        "population_register":
+            population_register,
+        "employment_register":
+            employment_register,
+        "tax_register":
+            tax_register,
+        "education_register":
+            education_register,
     }
